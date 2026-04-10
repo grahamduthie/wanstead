@@ -1,0 +1,11 @@
+[Unit]
+Description=Sweex Mini Webcam Still Capturer
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/sweex-capture.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+backend = systemd
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+maxretry = 3
+bantime = 1h
+findtime = 5m
+
+[wcam-auth]
+enabled = true
+port = http,https
+filter = wcam-auth
+logpath = /var/log/wcam-auth.log
+maxretry = 5
+bantime = 1h
+findtime = 10m

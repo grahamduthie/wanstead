@@ -1,0 +1,23 @@
+[Unit]
+Description=WansteadCam Auth Backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /var/www/camviewer/auth_server.py
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log /etc/nginx
+PrivateTmp=true
+
+# Waitress-specific
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

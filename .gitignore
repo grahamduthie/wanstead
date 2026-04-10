@@ -1,0 +1,26 @@
+# Sensitive data — never commit
+/etc/nginx/.wcam-users.json
+/etc/nginx/.htpasswd
+*.env
+.env.*
+
+# Logs
+/var/log/wcam-*.log*
+/var/log/nginx/*.log*
+/var/log/fail2ban.log*
+/var/log/router-reboot.log*
+/var/log/namecheap-ddns.log*
+/var/log/letsencrypt/*.log*
+
+# Backups and temp files
+*.bak.*
+*.tmp
+__pycache__/
+*.pyc
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Qwen internal
+.qwen/settings.json.orig

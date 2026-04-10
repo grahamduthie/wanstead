@@ -1,0 +1,21 @@
+[Unit]
+Description=WansteadCam WebSocket MJPEG Relay
+After=network.target ustreamer-logitech.service
+Wants=ustreamer-logitech.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /var/www/camviewer/ws_relay.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+/var/log/wcam-auth.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+    # Note: auth_server.py uses RotatingFileHandler (1MB, 5 backups)
+    # This logrotate config is a safety net for edge cases
+    postrotate
+        systemctl reload wcam-auth >/dev/null 2>&1 || true
+    endscript
+}

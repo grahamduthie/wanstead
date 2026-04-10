@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>WansteadCam</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            min-height: 100dvh;
+            overflow-x: hidden;
+        }
+        header {
+            background: #16213e;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #0f3460;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .logo {
+            max-width: 160px;
+            height: auto;
+        }
+        .header-center {
+            text-align: center;
+            flex: 1;
+        }
+        header p { color: #888; font-size: 0.8rem; }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .admin-btn, .logout-btn {
+            padding: 0.45rem 0.75rem;
+            border-radius: 6px;
+            background: transparent;
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .admin-btn {
+            border: 1px solid #f59e0b;
+            color: #f59e0b;
+        }
+        .admin-btn:hover, .admin-btn:active {
+            background: #f59e0b;
+            color: #1a1a2e;
+        }
+        .logout-btn {
+            border: 1px solid #ef4444;
+            color: #ef4444;
+        }
+        .logout-btn:hover, .logout-btn:active {
+            background: #ef4444;
+            color: #fff;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .camera-card {
+            background: #16213e;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #0f3460;
+        }
+        .camera-card.primary {
+            border-color: #4ade80;
+            box-shadow: 0 0 12px rgba(74, 222, 128, 0.15);
+        }
+        .camera-card.secondary {
+            max-width: 420px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .camera-header {
+            padding: 0.6rem 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #0f3460;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+        }
+        .camera-header h2 { font-size: 0.9rem; }
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.75rem;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #555;
+        }
+        .status-dot.online { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+        .status-dot.offline { background: #ef4444; }
+        .camera-feed {
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 240px;
+            position: relative;
+        }
+        .camera-feed img, .camera-feed canvas {
+            width: 100%;
+            display: block;
+        }
+        .camera-info {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.7rem;
+            color: #888;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        /* Modal styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 12px 12px 0 0;
+            width: 100%;
+            max-width: 600px;
+            max-height: 90vh;
+            max-height: 90dvh;
+            overflow-y: auto;
+            padding: 1rem;
+            -webkit-overflow-scrolling: touch;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #0f3460;
+            position: sticky;
+            top: 0;
+            background: #16213e;
+            z-index: 1;
+        }
+        .modal-header h2 { font-size: 1rem; }
+        .modal-close {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.5rem;
+            cursor: pointer;
+            line-height: 1;
+            min-width: 44px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-close:hover { color: #fff; }
+
+        /* Tabs for admin modal */
+        .tab-bar {
+            display: flex;
+            gap: 0;
+            margin-bottom: 0.75rem;
+            border-bottom: 2px solid #0f3460;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 0.5rem;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            color: #888;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: color 0.2s, border-color 0.2s;
+            min-height: 44px;
+        }
+        .tab-btn.active {
+            color: #f59e0b;
+            border-bottom-color: #f59e0b;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0.75rem;
+        }
+        .user-table th, .user-table td {
+            padding: 0.4rem 0.5rem;
+            text-align: left;
+            border-bottom: 1px solid #0f3460;
+            font-size: 0.8rem;
+        }
+        .user-table th { color: #888; font-weight: 600; }
+        .user-table tr:last-child td { border-bottom: none; }
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .badge-admin { background: #f59e0b33; color: #f59e0b; }
+        .badge-user { background: #3b82f633; color: #3b82f6; }
+        .action-btn {
+            background: none;
+            border: 1px solid #555;
+            color: #ccc;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.72rem;
+            margin-right: 0.2rem;
+            transition: background 0.2s, color 0.2s;
+            min-height: 32px;
+        }
+        .action-btn:hover, .action-btn:active { background: #555; color: #fff; }
+        .action-btn.danger { border-color: #ef4444; color: #ef4444; }
+        .action-btn.danger:hover, .action-btn.danger:active { background: #ef4444; color: #fff; }
+        .add-user-form {
+            background: #0f3460;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-top: 0.5rem;
+        }
+        .add-user-form h3 { font-size: 0.85rem; margin-bottom: 0.5rem; }
+        .form-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.4rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .form-row-inline {
+            justify-content: space-between;
+        }
+        .form-row input[type="text"],
+        .form-row input[type="password"],
+        .form-row input[type="email"] {
+            flex: 1;
+            min-width: 100px;
+            padding: 0.4rem 0.5rem;
+            border: 1px solid #333;
+            border-radius: 4px;
+            background: #16213e;
+            color: #eee;
+            font-size: 0.85rem;
+            min-height: 44px;
+        }
+        .form-row label {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.78rem;
+            color: #aaa;
+            white-space: nowrap;
+        }
+        .form-row input[type="checkbox"] {
+            accent-color: #f59e0b;
+            width: 18px;
+            height: 18px;
+        }
+        .submit-btn {
+            padding: 0.45rem 0.75rem;
+            border: 1px solid #4ade80;
+            border-radius: 6px;
+            background: transparent;
+            color: #4ade80;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            min-height: 44px;
+        }
+        .submit-btn:hover, .submit-btn:active { background: #4ade80; color: #1a1a2e; }
+        .msg { font-size: 0.78rem; margin-top: 0.4rem; min-height: 1.2em; }
+        .msg.error { color: #ef4444; }
+        .msg.success { color: #4ade80; }
+
+        /* Edit form */
+        .edit-form {
+            background: #0f3460;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+        }
+        .edit-form h3 { font-size: 0.85rem; margin-bottom: 0.5rem; }
+
+        /* Log viewer */
+        .log-filters {
+            display: flex;
+            gap: 0.4rem;
+            margin-bottom: 0.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .log-filters select, .log-filters input {
+            padding: 0.35rem 0.5rem;
+            border: 1px solid #333;
+            border-radius: 4px;
+            background: #16213e;
+            color: #eee;
+            font-size: 0.78rem;
+            min-height: 44px;
+        }
+        .log-filters select { flex: 1; min-width: 100px; }
+        .log-filters input { flex: 1; min-width: 100px; }
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.72rem;
+        }
+        .log-table th, .log-table td {
+            padding: 0.35rem 0.4rem;
+            text-align: left;
+            border-bottom: 1px solid #0f3460;
+            vertical-align: top;
+        }
+        .log-table th { color: #888; font-weight: 600; white-space: nowrap; }
+        .log-event { font-weight: 600; }
+        .log-event.LOGIN_OK { color: #4ade80; }
+        .log-event.LOGIN_FAIL { color: #ef4444; }
+        .log-event.LOGOUT { color: #3b82f6; }
+        .log-event.USER_CREATED { color: #a78bfa; }
+        .log-event.USER_UPDATED { color: #f59e0b; }
+        .log-event.USER_DELETED { color: #ef4444; }
+        .log-ip { color: #666; font-size: 0.65rem; }
+        .log-detail { color: #888; font-size: 0.68rem; word-break: break-all; }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            font-size: 0.78rem;
+        }
+        .pagination button {
+            padding: 0.3rem 0.6rem;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #16213e;
+            color: #eee;
+            cursor: pointer;
+            min-height: 44px;
+            min-width: 44px;
+        }
+        .pagination button:disabled { opacity: 0.4; cursor: default; }
+        .pagination button:not(:disabled):hover { background: #555; }
+
+        /* Desktop: modal centered */
+        @media (min-width: 601px) {
+            .modal-overlay { align-items: center; }
+            .modal { border-radius: 12px; }
+        }
+
+        @media (max-width: 600px) {
+            header { padding: 0.5rem 0.75rem; }
+            .logo { max-width: 120px; }
+            header p { font-size: 0.72rem; }
+            .container { padding: 0.75rem; gap: 0.75rem; }
+            .camera-feed { min-height: 200px; }
+            .camera-header h2 { font-size: 0.82rem; }
+            .camera-info { font-size: 0.65rem; }
+            .user-table { font-size: 0.72rem; }
+            .user-table th, .user-table td { padding: 0.35rem 0.4rem; }
+            .log-table { font-size: 0.65rem; }
+            .log-table th, .log-table td { padding: 0.3rem; }
+            .form-row { flex-direction: column; }
+            .form-row-inline { flex-direction: row; justify-content: flex-start; gap: 0.75rem; }
+            .form-row input[type="text"],
+            .form-row input[type="password"] { min-width: unset; width: 100%; }
+        }
+
+        @media (max-width: 380px) {
+            .header-right { gap: 0.25rem; }
+            .admin-btn, .logout-btn { padding: 0.4rem 0.5rem; font-size: 0.72rem; }
+            .camera-header { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <img src="/WansteadCam.png" alt="WansteadCam" class="logo">
+        </div>
+        <div class="header-center">
+            <p id="clock"></p>
+        </div>
+        <div class="header-right">
+            <button class="admin-btn" id="adminBtn" style="display:none" onclick="openAdminModal()">&#9881; Users</button>
+            <button class="logout-btn" onclick="doLogout()">&#128274; Logout</button>
+        </div>
+    </header>
+    <div class="container">
+        <div class="camera-card primary">
+            <div class="camera-header">
+                <h2>&#128247; Logitech QuickCam Pro 5000</h2>
+                <div class="status">
+                    <div class="status-dot" id="dot-logitech"></div>
+                    <span id="status-logitech">Connecting...</span>
+                </div>
+            </div>
+            <div class="camera-feed" id="logitechFeed">
+                <!-- Stream element injected by JS based on browser capability -->
+            </div>
+            <div class="camera-info">
+                <span>640x480 @ 30fps &mdash; Live Stream</span>
+                <span>/dev/video0</span>
+            </div>
+        </div>
+        <div class="camera-card secondary">
+            <div class="camera-header">
+                <h2>&#128247; Sweex Mini Webcam</h2>
+                <div class="status">
+                    <div class="status-dot" id="dot-sweex"></div>
+                    <span id="status-sweex">Connecting...</span>
+                </div>
+            </div>
+            <div class="camera-feed">
+                <img id="cam-sweex"
+                     src="/sweex_latest.jpg"
+                     alt="Sweex Mini Webcam"
+                     onload="setOnline('sweex')"
+                     onerror="setOffline('sweex')">
+            </div>
+            <div class="camera-info">
+                <span>352x288 (still, refreshes every 5s)</span>
+                <span>/dev/video2</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Modal -->
+    <div class="modal-overlay" id="adminModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>&#128295; Admin</h2>
+                <button class="modal-close" onclick="closeAdminModal()">&times;</button>
+            </div>
+            <div class="tab-bar">
+                <button class="tab-btn active" data-tab="users" onclick="switchTab('users')">&#128100; Users</button>
+                <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">&#128203; Event Log</button>
+            </div>
+            <div class="tab-content active" id="tab-users">
+                <table class="user-table" id="userTable">
+                    <thead>
+                        <tr><th>Username</th><th>Role</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody id="userTableBody">
+                        <tr><td colspan="3">Loading...</td></tr>
+                    </tbody>
+                </table>
+                <div class="add-user-form">
+                    <h3>Add User</h3>
+                    <div class="form-row">
+                        <input type="text" id="newUsername" placeholder="Username" autocomplete="off">
+                    </div>
+                    <div class="form-row">
+                        <input type="password" id="newPassword" placeholder="Password" autocomplete="new-password">
+                    </div>
+                    <div class="form-row form-row-inline">
+                        <label><input type="checkbox" id="newIsAdmin"> Admin</label>
+                        <button class="submit-btn" onclick="addUser()">Add User</button>
+                    </div>
+                    <div class="msg" id="addMsg"></div>
+                </div>
+            </div>
+            <div class="tab-content" id="tab-logs">
+                <div class="log-filters">
+                    <select id="logEventFilter" onchange="loadLogs()">
+                        <option value="">All events</option>
+                        <option value="LOGIN_OK">Login OK</option>
+                        <option value="LOGIN_FAIL">Login Fail</option>
+                        <option value="LOGOUT">Logout</option>
+                        <option value="SD_CARD_HEALTH">SD Card Health</option>
+                        <option value="USER_CREATED">User Created</option>
+                        <option value="USER_UPDATED">User Updated</option>
+                        <option value="USER_DELETED">User Deleted</option>
+                    </select>
+                    <input type="text" id="logUserFilter" placeholder="Filter by user" oninput="loadLogs()">
+                </div>
+                <table class="log-table">
+                    <thead>
+                        <tr><th>Time</th><th>Event</th><th>User</th><th>Detail</th></tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                        <tr><td colspan="4">Loading...</td></tr>
+                    </tbody>
+                </table>
+                <div class="pagination" id="logPagination"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div class="modal-overlay" id="editModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Edit User</h2>
+                <button class="modal-close" onclick="closeEditModal()">&times;</button>
+            </div>
+            <div class="edit-form">
+                <h3 id="editTitle">Editing: user</h3>
+                <div class="form-row">
+                    <input type="text" id="editUsername" placeholder="Username" autocomplete="off">
+                </div>
+                <div class="form-row">
+                    <input type="password" id="editPassword" placeholder="New password (blank to keep)" autocomplete="new-password">
+                </div>
+                <div class="form-row">
+                    <label><input type="checkbox" id="editIsAdmin"> Admin</label>
+                </div>
+                <div class="form-row">
+                    <button class="submit-btn" onclick="saveEdit()">Save Changes</button>
+                </div>
+                <div class="msg" id="editMsg"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- State ---
+        var currentAdminUser = null;
+        var editingUser = null;
+        var logPage = 1;
+        var isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent);
+        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+        // --- Shared helpers ---
+
+        /** Fetch JSON from an API endpoint. Returns Promise<{ok, ...}> or {ok:false, error}. */
+        function api(path, options) {
+            options = options || {};
+            return fetch(path, options)
+                .then(function(r) { return r.json(); })
+                .catch(function(err) { return { ok: false, error: err.message || 'Network error' }; });
+        }
+
+        /** Show a message in an element with the given type ('error' or 'success'). */
+        function showMsg(el, text, type) {
+            el.textContent = text;
+            el.className = 'msg' + (type ? ' ' + type : '');
+        }
+
+        /** Create a reconnect controller with exponential backoff. */
+        function createReconnectController(initialDelay, maxDelay) {
+            var delay = initialDelay;
+            var timer = null;
+            return {
+                getDelay: function() { return delay; },
+                getTimer: function() { return timer; },
+                schedule: function(fn) {
+                    if (timer) return;
+                    timer = setTimeout(function() {
+                        timer = null;
+                        fn();
+                    }, delay);
+                    delay = Math.min(delay * 2, maxDelay);
+                },
+                reset: function() {
+                    delay = initialDelay;
+                    if (timer) { clearTimeout(timer); timer = null; }
+                },
+                clear: function() {
+                    if (timer) { clearTimeout(timer); timer = null; }
+                }
+            };
+        }
+
+        // --- Status helpers ---
+        function setOnline(name) {
+            var dot = document.getElementById('dot-' + name);
+            var txt = document.getElementById('status-' + name);
+            if (dot) dot.className = 'status-dot online';
+            if (txt) txt.textContent = 'Live';
+        }
+        function setOffline(name) {
+            var dot = document.getElementById('dot-' + name);
+            var txt = document.getElementById('status-' + name);
+            if (dot) dot.className = 'status-dot offline';
+            if (txt) txt.textContent = 'Offline';
+        }
+
+        // --- Clock ---
+        function updateClock() {
+            var el = document.getElementById('clock');
+            if (el) el.textContent = new Date().toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'medium' });
+        }
+
+        // --- Logout ---
+        function doLogout() {
+            fetch('/api/logout', { method: 'POST' })
+                .then(function() { window.location.href = '/login.html'; })
+                .catch(function() { window.location.href = '/login.html'; });
+        }
+
+        // --- Sweex still camera ---
+        setInterval(function() {
+            var img = document.getElementById("cam-sweex");
+            if (img) img.src = "/sweex_latest.jpg?t=" + Date.now();
+        }, 5000);
+
+        // --- Logitech stream ---
+        // Safari/iOS: WebSocket-based MJPEG relay (30fps, reliable)
+        // Chrome/Firefox/Edge: native MJPEG via <img>
+        (function() {
+            var feed = document.getElementById('logitechFeed');
+            if (!feed) return;
+
+            if (isSafari || isIOS) {
+                // Safari/iOS: WebSocket relay — decouple receive from render
+                // to prevent decode pileup and GC pauses.
+                // Incoming frames are buffered; rAF draws the latest at display rate.
+                var canvas = document.createElement('canvas');
+                canvas.id = 'cam-logitech-canvas';
+                feed.appendChild(canvas);
+                var ctx = canvas.getContext('2d');
+                var ws = null;
+                var rc = createReconnectController(1000, 10000);
+
+                // Frame buffer: only the latest frame is kept, older ones dropped
+                var latestFrame = null; // {data, seq}
+                var frameSeq = 0;
+                var frameImg = new Image();
+                var isDecoding = false;
+
+                function connectWS() {
+                    latestFrame = null;
+                    frameSeq = 0;
+                    isDecoding = false;
+                    var proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+                    var url = proto + window.location.host + '/ws/logitech/';
+                    ws = new WebSocket(url);
+                    ws.binaryType = 'arraybuffer';
+
+                    ws.onopen = function() {
+                        setOnline('logitech');
+                        rc.reset();
+                    };
+
+                    ws.onmessage = function(event) {
+                        // Always keep only the very latest frame
+                        latestFrame = { data: event.data, seq: ++frameSeq };
+                        // Start decode if we're not already busy
+                        if (!isDecoding) decodeFrame();
+                    };
+
+                    ws.onclose = function() {
+                        setOffline('logitech');
+                        rc.schedule(connectWS);
+                    };
+
+                    ws.onerror = function() {
+                        setOffline('logitech');
+                    };
+                }
+
+                function decodeFrame() {
+                    if (!latestFrame || isDecoding) return;
+                    var frame = latestFrame;
+                    isDecoding = true;
+                    var blob = new Blob([frame.data], { type: 'image/jpeg' });
+                    var blobUrl = URL.createObjectURL(blob);
+
+                    frameImg.onload = function() {
+                        isDecoding = false;
+                        // Check if a newer frame arrived while we were decoding
+                        if (frame.seq !== frameSeq) {
+                            URL.revokeObjectURL(blobUrl);
+                            // Decode the newer frame
+                            decodeFrame();
+                            return;
+                        }
+                        requestAnimationFrame(function() {
+                            if (frame.seq !== frameSeq) {
+                                URL.revokeObjectURL(blobUrl);
+                                return;
+                            }
+                            if (canvas.width !== frameImg.width || canvas.height !== frameImg.height) {
+                                canvas.width = frameImg.width;
+                                canvas.height = frameImg.height;
+                            }
+                            ctx.drawImage(frameImg, 0, 0);
+                            URL.revokeObjectURL(blobUrl);
+                            latestFrame = null;
+                            setOnline('logitech');
+                        });
+                    };
+                    frameImg.onerror = function() {
+                        isDecoding = false;
+                        URL.revokeObjectURL(blobUrl);
+                        if (latestFrame && latestFrame.seq === frame.seq) {
+                            latestFrame = null;
+                        }
+                    };
+                    frameImg.src = blobUrl;
+                }
+
+                connectWS();
+
+                // Pause when tab hidden, resume when visible
+                document.addEventListener('visibilitychange', function() {
+                    if (document.hidden) {
+                        if (ws) { ws.close(); ws = null; }
+                        rc.clear();
+                    } else {
+                        rc.reset();
+                        if (!ws) connectWS();
+                    }
+                });
+
+            } else {
+                // Chrome/Firefox/Edge: native MJPEG via <img>
+                var img = document.createElement('img');
+                img.id = 'cam-logitech';
+                img.alt = 'Logitech QuickCam Pro 5000';
+                feed.appendChild(img);
+
+                var rc = createReconnectController(1000, 10000);
+
+                function reloadStream() {
+                    img.src = '/stream/logitech/?t=' + Date.now();
+                }
+
+                img.onerror = function() {
+                    setOffline('logitech');
+                    rc.schedule(reloadStream);
+                };
+
+                document.addEventListener('visibilitychange', function() {
+                    if (!document.hidden) {
+                        reloadStream();
+                        rc.reset();
+                    }
+                });
+
+                img.onload = function() {
+                    setOnline('logitech');
+                    rc.reset();
+                };
+
+                // Initial load
+                reloadStream();
+            }
+        })();
+
+        // --- Log cache: preloaded when admin modal opens ---
+        var logCache = null;
+        var logCacheTime = 0;
+        var LOG_CACHE_TTL = 30000; // 30 seconds
+
+        function preloadLogs() {
+            if (logCache && (Date.now() - logCacheTime) < LOG_CACHE_TTL) return;
+            api('/api/audit?page=1&per_page=20', { credentials: 'same-origin' })
+                .then(function(data) {
+                    if (data.ok) {
+                        logCache = data;
+                        logCacheTime = Date.now();
+                        console.log('[preloadLogs] cached ' + data.entries.length + ' entries');
+                    }
+                })
+                .catch(function(err) { console.error('[preloadLogs] error:', err); });
+        }
+
+        // --- Check admin status ---
+        function checkAdmin() {
+            api('/api/me')
+                .then(function(data) {
+                    if (data.ok && data.is_admin) {
+                        currentAdminUser = data.username;
+                        document.getElementById('adminBtn').style.display = '';
+                    }
+                })
+                .catch(function() {});
+        }
+
+        // --- Tab switching ---
+        function switchTab(name) {
+            document.querySelectorAll('.tab-btn').forEach(function(b) {
+                b.classList.toggle('active', b.getAttribute('data-tab') === name);
+            });
+            document.querySelectorAll('.tab-content').forEach(function(c) {
+                c.classList.toggle('active', c.id === 'tab-' + name);
+            });
+            if (name === 'logs') loadLogs();
+        }
+
+        // --- Admin modal ---
+        function openAdminModal() {
+            document.getElementById('adminModal').classList.add('active');
+            loadUsers();
+            preloadLogs();
+        }
+        function closeAdminModal() {
+            document.getElementById('adminModal').classList.remove('active');
+            document.getElementById('addMsg').textContent = '';
+        }
+
+        // --- Load users ---
+        function loadUsers() {
+            api('/api/users')
+                .then(function(data) {
+                    var tbody = document.getElementById('userTableBody');
+                    if (!data.ok) {
+                        tbody.innerHTML = '<tr><td colspan="3">Failed to load</td></tr>';
+                        return;
+                    }
+                    if (data.users.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="3">No users</td></tr>';
+                        return;
+                    }
+                    var html = '';
+                    for (var i = 0; i < data.users.length; i++) {
+                        var u = data.users[i];
+                        var role = u.is_admin
+                            ? '<span class="badge badge-admin">Admin</span>'
+                            : '<span class="badge badge-user">User</span>';
+                        html += '<tr>'
+                            + '<td>' + escHtml(u.username) + '</td>'
+                            + '<td>' + role + '</td>'
+                            + '<td>'
+                            + '<button class="action-btn" onclick="openEdit(\'' + escAttr(u.username) + '\',' + u.is_admin + ')">Edit</button>'
+                            + '<button class="action-btn danger" onclick="deleteUser(\'' + escAttr(u.username) + '\')">Del</button>'
+                            + '</td></tr>';
+                    }
+                    tbody.innerHTML = html;
+                })
+                .catch(function() {
+                    document.getElementById('userTableBody').innerHTML = '<tr><td colspan="3">Error</td></tr>';
+                });
+        }
+
+        // --- Add user ---
+        function addUser() {
+            var username = document.getElementById('newUsername').value.trim();
+            var password = document.getElementById('newPassword').value;
+            var isAdmin = document.getElementById('newIsAdmin').checked;
+            var msg = document.getElementById('addMsg');
+            api('/api/users', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username: username, password: password, is_admin: isAdmin})
+            })
+            .then(function(data) {
+                if (data.ok) {
+                    showMsg(msg, 'User "' + username + '" added', 'success');
+                    document.getElementById('newUsername').value = '';
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('newIsAdmin').checked = false;
+                    loadUsers();
+                } else {
+                    showMsg(msg, data.error || 'Failed', 'error');
+                }
+            });
+        }
+
+        // --- Delete user ---
+        function deleteUser(username) {
+            if (!confirm('Delete user "' + username + '"?')) return;
+            api('/api/users/' + encodeURIComponent(username), { method: 'DELETE' })
+                .then(function(data) {
+                    if (data.ok) loadUsers();
+                    else alert(data.error || 'Failed');
+                })
+                .catch(function() { alert('Network error'); });
+        }
+
+        // --- Edit modal ---
+        function openEdit(username, isAdmin) {
+            editingUser = username;
+            document.getElementById('editTitle').textContent = 'Editing: ' + username;
+            document.getElementById('editUsername').value = username;
+            document.getElementById('editPassword').value = '';
+            document.getElementById('editIsAdmin').checked = isAdmin;
+            document.getElementById('editMsg').textContent = '';
+            document.getElementById('editModal').classList.add('active');
+        }
+        function closeEditModal() {
+            document.getElementById('editModal').classList.remove('active');
+            editingUser = null;
+        }
+        function saveEdit() {
+            var newUsername = document.getElementById('editUsername').value.trim();
+            var newPassword = document.getElementById('editPassword').value;
+            var newIsAdmin = document.getElementById('editIsAdmin').checked;
+            var msg = document.getElementById('editMsg');
+            var body = {username: newUsername, is_admin: newIsAdmin};
+            if (newPassword) body.password = newPassword;
+            api('/api/users/' + encodeURIComponent(editingUser), {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            })
+            .then(function(data) {
+                if (data.ok) {
+                    showMsg(msg, 'User updated', 'success');
+                    editingUser = newUsername;
+                    loadUsers();
+                } else {
+                    showMsg(msg, data.error || 'Failed', 'error');
+                }
+            });
+        }
+
+        // --- Render log entries (shared between loadLogs and cache) ---
+        function renderLogs(data) {
+            var tbody = document.getElementById('logTableBody');
+            if (!data.ok || !data.entries.length) {
+                tbody.innerHTML = '<tr><td colspan="4">No entries found</td></tr>';
+                document.getElementById('logPagination').innerHTML = '';
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < data.entries.length; i++) {
+                var e = data.entries[i];
+                // Timestamp format: YYYY-MM-DD HH:MM:SS → DD-MM-YYYY HH:MM:SS (UK format with seconds)
+                var ts = e.timestamp || '';
+                var time = '';
+                if (ts.length >= 19) {
+                    time = ts.substring(8, 10) + '-' + ts.substring(5, 7) + '-' + ts.substring(0, 4) + ' ' + ts.substring(11, 19);
+                } else {
+                    time = ts;
+                }
+                var evtClass = 'log-event ' + (e.event || '');
+                var detail = '';
+                if (e.detail) detail = '<span class="log-detail">' + escHtml(e.detail) + '</span>';
+                html += '<tr>'
+                    + '<td>' + escHtml(time) + '</td>'
+                    + '<td><span class="' + evtClass + '">' + escHtml(e.event || '') + '</span></td>'
+                    + '<td>' + escHtml(e.username || '') + '<br><span class="log-ip">' + escHtml(e.ip || '') + '</span></td>'
+                    + '<td>' + detail + '</td>'
+                    + '</tr>';
+            }
+            tbody.innerHTML = html;
+
+            // Pagination
+            var pag = document.getElementById('logPagination');
+            var totalPages = data.total_pages || 1;
+            var pagHtml = '<button onclick="loadLogsPage(' + (logPage - 1) + ')"' + (logPage <= 1 ? ' disabled' : '') + '>&larr;</button>';
+            pagHtml += '<span>' + logPage + ' / ' + totalPages + ' (' + data.total + ')</span>';
+            pagHtml += '<button onclick="loadLogsPage(' + (logPage + 1) + ')"' + (logPage >= totalPages ? ' disabled' : '') + '>&rarr;</button>';
+            pag.innerHTML = pagHtml;
+        }
+
+        // --- Event log viewer ---
+        function loadLogs() {
+            var eventFilterEl = document.getElementById('logEventFilter');
+            var userFilterEl = document.getElementById('logUserFilter');
+            if (!eventFilterEl || !userFilterEl) {
+                var tbody = document.getElementById('logTableBody');
+                if (tbody) tbody.innerHTML = '<tr><td colspan="4">Error: filter elements missing</td></tr>';
+                return;
+            }
+            var eventFilter = eventFilterEl.value;
+            var userFilter = userFilterEl.value.trim();
+            var tbody = document.getElementById('logTableBody');
+
+            // If no filters and page 1, use cached data if available
+            if (!eventFilter && !userFilter && logPage === 1 && logCache && (Date.now() - logCacheTime) < LOG_CACHE_TTL) {
+                renderLogs(logCache);
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+
+            var url = '/api/audit?page=' + logPage + '&per_page=20';
+            if (eventFilter) url += '&event=' + encodeURIComponent(eventFilter);
+            if (userFilter) url += '&username=' + encodeURIComponent(userFilter);
+
+            api(url, { credentials: 'same-origin' })
+                .then(function(data) { renderLogs(data); })
+                .catch(function(err) {
+                    tbody.innerHTML = '<tr><td colspan="4">Error: ' + (err.message || 'failed') + '</td></tr>';
+                });
+        }
+        function loadLogsPage(p) {
+            logPage = Math.max(1, p);
+            loadLogs();
+        }
+
+        // --- Utility ---
+        function escHtml(s) {
+            var d = document.createElement('div');
+            d.appendChild(document.createTextNode(s));
+            return d.innerHTML;
+        }
+        function escAttr(s) {
+            return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        // --- Close modals on overlay click ---
+        document.getElementById('adminModal').addEventListener('click', function(e) {
+            if (e.target === this) closeAdminModal();
+        });
+        document.getElementById('editModal').addEventListener('click', function(e) {
+            if (e.target === this) closeEditModal();
+        });
+
+        // --- Init ---
+        setInterval(updateClock, 1000);
+        checkAdmin();
+        updateClock();
+    </script>
+</body>
+</html>
