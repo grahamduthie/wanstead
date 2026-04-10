@@ -1,7 +1,7 @@
 # Wanstead Pi — Webcam Project
 
 **Date:** 7 April 2026
-**Updated:** 9 April 2026 (13:35 BST) — Log viewer shows date+time, add user form mobile-friendly
+**Updated:** 10 April 2026 (10:45 BST) — Read-only filesystem resilience, SD card health monitoring, Event Log, UK date format, credentials externalised for GitHub
 **Device:** Raspberry Pi (cellpi, kernel 6.12.75+rpt-rpi-v8, aarch64)
 **IP:** 192.168.0.18
 **Public IP:** 90.251.55.4 (dynamic, BT)
