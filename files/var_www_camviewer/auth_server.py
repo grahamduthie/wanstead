@@ -707,9 +707,9 @@ def api_audit_log():
 
     import glob as glob_mod
 
-    # Read all log files (current + rotated), newest-first order
+    # Read all log files (current + rotated), sort by timestamp descending
     entries = []
-    log_files = sorted(glob_mod.glob(AUDIT_LOG_PATH + '*'), reverse=True)
+    log_files = sorted(glob_mod.glob(AUDIT_LOG_PATH + '*'))
     if AUDIT_LOG_PATH in log_files:
         log_files.remove(AUDIT_LOG_PATH)
         log_files.insert(0, AUDIT_LOG_PATH)
@@ -733,7 +733,8 @@ def api_audit_log():
         except FileNotFoundError:
             continue
 
-    entries.reverse()
+    # Sort newest first by timestamp
+    entries.sort(key=lambda e: e.get('timestamp', ''), reverse=True)
 
     total = len(entries)
     start = (page - 1) * per_page
