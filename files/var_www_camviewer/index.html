@@ -563,8 +563,6 @@
         var currentAdminUser = null;
         var editingUser = null;
         var logPage = 1;
-        var isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent);
-        var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
         // --- Shared helpers ---
 
@@ -641,147 +639,112 @@
         }, 5000);
 
         // --- Logitech stream ---
-        // Safari/iOS: WebSocket-based MJPEG relay (30fps, reliable)
-        // Chrome/Firefox/Edge: native MJPEG via <img>
+        // All browsers use WebSocket relay for reliable, consistent playback.
+        // Safari/iOS native MJPEG is not supported; Chrome/Firefox/Edge native MJPEG
+        // suffers from browser throttling, GC pauses, and silent connection drops.
         (function() {
             var feed = document.getElementById('logitechFeed');
             if (!feed) return;
 
-            if (isSafari || isIOS) {
-                // Safari/iOS: WebSocket relay — decouple receive from render
-                // to prevent decode pileup and GC pauses.
-                // Incoming frames are buffered; rAF draws the latest at display rate.
-                var canvas = document.createElement('canvas');
-                canvas.id = 'cam-logitech-canvas';
-                feed.appendChild(canvas);
-                var ctx = canvas.getContext('2d');
-                var ws = null;
-                var rc = createReconnectController(1000, 10000);
+            // WebSocket relay — decouple receive from render to prevent decode pileup
+            // and GC pauses. Incoming frames are buffered; rAF draws the latest at display rate.
+            var canvas = document.createElement('canvas');
+            canvas.id = 'cam-logitech-canvas';
+            feed.appendChild(canvas);
+            var ctx = canvas.getContext('2d');
+            var ws = null;
+            var rc = createReconnectController(1000, 10000);
 
-                // Frame buffer: only the latest frame is kept, older ones dropped
-                var latestFrame = null; // {data, seq}
-                var frameSeq = 0;
-                var frameImg = new Image();
-                var isDecoding = false;
+            // Frame buffer: only the latest frame is kept, older ones dropped
+            var latestFrame = null; // {data, seq}
+            var frameSeq = 0;
+            var frameImg = new Image();
+            var isDecoding = false;
 
-                function connectWS() {
-                    latestFrame = null;
-                    frameSeq = 0;
-                    isDecoding = false;
-                    var proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-                    var url = proto + window.location.host + '/ws/logitech/';
-                    ws = new WebSocket(url);
-                    ws.binaryType = 'arraybuffer';
+            function connectWS() {
+                latestFrame = null;
+                frameSeq = 0;
+                isDecoding = false;
+                var proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+                var url = proto + window.location.host + '/ws/logitech/';
+                ws = new WebSocket(url);
+                ws.binaryType = 'arraybuffer';
 
-                    ws.onopen = function() {
-                        setOnline('logitech');
-                        rc.reset();
-                    };
-
-                    ws.onmessage = function(event) {
-                        // Always keep only the very latest frame
-                        latestFrame = { data: event.data, seq: ++frameSeq };
-                        // Start decode if we're not already busy
-                        if (!isDecoding) decodeFrame();
-                    };
-
-                    ws.onclose = function() {
-                        setOffline('logitech');
-                        rc.schedule(connectWS);
-                    };
-
-                    ws.onerror = function() {
-                        setOffline('logitech');
-                    };
-                }
-
-                function decodeFrame() {
-                    if (!latestFrame || isDecoding) return;
-                    var frame = latestFrame;
-                    isDecoding = true;
-                    var blob = new Blob([frame.data], { type: 'image/jpeg' });
-                    var blobUrl = URL.createObjectURL(blob);
-
-                    frameImg.onload = function() {
-                        isDecoding = false;
-                        // Check if a newer frame arrived while we were decoding
-                        if (frame.seq !== frameSeq) {
-                            URL.revokeObjectURL(blobUrl);
-                            // Decode the newer frame
-                            decodeFrame();
-                            return;
-                        }
-                        requestAnimationFrame(function() {
-                            if (frame.seq !== frameSeq) {
-                                URL.revokeObjectURL(blobUrl);
-                                return;
-                            }
-                            if (canvas.width !== frameImg.width || canvas.height !== frameImg.height) {
-                                canvas.width = frameImg.width;
-                                canvas.height = frameImg.height;
-                            }
-                            ctx.drawImage(frameImg, 0, 0);
-                            URL.revokeObjectURL(blobUrl);
-                            latestFrame = null;
-                            setOnline('logitech');
-                        });
-                    };
-                    frameImg.onerror = function() {
-                        isDecoding = false;
-                        URL.revokeObjectURL(blobUrl);
-                        if (latestFrame && latestFrame.seq === frame.seq) {
-                            latestFrame = null;
-                        }
-                    };
-                    frameImg.src = blobUrl;
-                }
-
-                connectWS();
-
-                // Pause when tab hidden, resume when visible
-                document.addEventListener('visibilitychange', function() {
-                    if (document.hidden) {
-                        if (ws) { ws.close(); ws = null; }
-                        rc.clear();
-                    } else {
-                        rc.reset();
-                        if (!ws) connectWS();
-                    }
-                });
-
-            } else {
-                // Chrome/Firefox/Edge: native MJPEG via <img>
-                var img = document.createElement('img');
-                img.id = 'cam-logitech';
-                img.alt = 'Logitech QuickCam Pro 5000';
-                feed.appendChild(img);
-
-                var rc = createReconnectController(1000, 10000);
-
-                function reloadStream() {
-                    img.src = '/stream/logitech/?t=' + Date.now();
-                }
-
-                img.onerror = function() {
-                    setOffline('logitech');
-                    rc.schedule(reloadStream);
-                };
-
-                document.addEventListener('visibilitychange', function() {
-                    if (!document.hidden) {
-                        reloadStream();
-                        rc.reset();
-                    }
-                });
-
-                img.onload = function() {
+                ws.onopen = function() {
                     setOnline('logitech');
                     rc.reset();
                 };
 
-                // Initial load
-                reloadStream();
+                ws.onmessage = function(event) {
+                    // Always keep only the very latest frame
+                    latestFrame = { data: event.data, seq: ++frameSeq };
+                    // Start decode if we're not already busy
+                    if (!isDecoding) decodeFrame();
+                };
+
+                ws.onclose = function() {
+                    setOffline('logitech');
+                    rc.schedule(connectWS);
+                };
+
+                ws.onerror = function() {
+                    setOffline('logitech');
+                };
             }
+
+            function decodeFrame() {
+                if (!latestFrame || isDecoding) return;
+                var frame = latestFrame;
+                isDecoding = true;
+                var blob = new Blob([frame.data], { type: 'image/jpeg' });
+                var blobUrl = URL.createObjectURL(blob);
+
+                frameImg.onload = function() {
+                    isDecoding = false;
+                    // Check if a newer frame arrived while we were decoding
+                    if (frame.seq !== frameSeq) {
+                        URL.revokeObjectURL(blobUrl);
+                        // Decode the newer frame
+                        decodeFrame();
+                        return;
+                    }
+                    requestAnimationFrame(function() {
+                        if (frame.seq !== frameSeq) {
+                            URL.revokeObjectURL(blobUrl);
+                            return;
+                        }
+                        if (canvas.width !== frameImg.width || canvas.height !== frameImg.height) {
+                            canvas.width = frameImg.width;
+                            canvas.height = frameImg.height;
+                        }
+                        ctx.drawImage(frameImg, 0, 0);
+                        URL.revokeObjectURL(blobUrl);
+                        latestFrame = null;
+                        setOnline('logitech');
+                    });
+                };
+                frameImg.onerror = function() {
+                    isDecoding = false;
+                    URL.revokeObjectURL(blobUrl);
+                    if (latestFrame && latestFrame.seq === frame.seq) {
+                        latestFrame = null;
+                    }
+                };
+                frameImg.src = blobUrl;
+            }
+
+            connectWS();
+
+            // Pause when tab hidden, resume when visible
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    if (ws) { ws.close(); ws = null; }
+                    rc.clear();
+                } else {
+                    rc.reset();
+                    if (!ws) connectWS();
+                }
+            });
         })();
 
         // --- Log cache: preloaded when admin modal opens ---

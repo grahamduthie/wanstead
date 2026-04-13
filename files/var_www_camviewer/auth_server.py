@@ -691,57 +691,23 @@ def api_delete_user(target_username):
 @app.route('/api/audit', methods=['GET'])
 def api_audit_log():
     """Return recent entries from the login audit log (admin only).
-    Query params: page (default 1), per_page (default 20, max 200),
+    Query params: page (default 1), per_page (default 50, max 200),
     event (optional filter), username (optional filter).
-    Optimized: reads current file first, skips rotated files for page 1
-    unless filters are applied.
+    Always reads rotated files so the most recent 50 entries are visible.
     """
     admin = require_admin()
     if not admin:
         return jsonify({'ok': False, 'error': 'Admin access required'}), 403
 
     page = max(1, int(request.args.get('page', 1)))
-    per_page = min(200, max(10, int(request.args.get('per_page', 20))))
+    per_page = min(200, max(10, int(request.args.get('per_page', 50))))
     event_filter = request.args.get('event', '').strip()
     username_filter = request.args.get('username', '').strip()
     has_filters = bool(event_filter or username_filter)
 
     import glob as glob_mod
 
-    # Fast path: page 1 with no filters — only read current log file
-    # (most recent entries, which is what users care about)
-    if page == 1 and not has_filters:
-        entries = []
-        try:
-            with open(AUDIT_LOG_PATH, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entry = json.loads(line)
-                        entries.append(entry)
-                    except json.JSONDecodeError:
-                        continue
-        except FileNotFoundError:
-            pass
-        # Reverse so newest entries are first
-        entries.reverse()
-        # We only need per_page entries for page 1
-        page_entries = entries[:per_page]
-        # Estimate total (current file only — don't count rotated files)
-        total = len(entries)
-
-        return jsonify({
-            'ok': True,
-            'entries': page_entries,
-            'total': total,
-            'page': page,
-            'per_page': per_page,
-            'total_pages': (total + per_page - 1) // per_page if per_page else 1
-        })
-
-    # Full path: read all log files (for pagination beyond page 1 or filtered queries)
+    # Read all log files (current + rotated), newest-first order
     entries = []
     log_files = sorted(glob_mod.glob(AUDIT_LOG_PATH + '*'), reverse=True)
     if AUDIT_LOG_PATH in log_files:
