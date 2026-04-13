@@ -1,7 +1,7 @@
 # Wanstead Pi — Webcam Project
 
 **Date:** 7 April 2026
-**Updated:** 10 April 2026 (10:45 BST) — Read-only filesystem resilience, SD card health monitoring, Event Log, UK date format, credentials externalised for GitHub
+**Updated:** 13 April 2026 (12:30 BST) — Unified WebSocket relay for all browsers, removed native MJPEG path (Chrome/Firefox/Edge), removed 5s watchdog reload
 **Device:** Raspberry Pi (cellpi, kernel 6.12.75+rpt-rpi-v8, aarch64)
 **IP:** 192.168.0.18
 **Public IP:** 90.251.55.4 (dynamic, BT)
@@ -295,12 +295,12 @@ The Pi is designed to run unattended for long periods (possibly years). The foll
 | Service | Active (with clients) | Idle (no clients) | Mechanism |
 |---------|----------------------|-------------------|-----------|
 | ustreamer-logitech | ~1-2% (30fps MJPEG) | ~0.1% (1 FPS) | `--slowdown` flag — drops to 1 FPS when no stream clients connected |
-| wcam-ws-relay | ~0.5% (broadcasting to Safari clients) | ~0.1% (connected to ustreamer, no WS clients) | asyncio event loop — reads stream but only broadcasts when clients connected |
+| wcam-ws-relay | ~0.5% (broadcasting to clients) | ~0.1% (connected to ustreamer, no WS clients) | asyncio event loop — reads stream but only broadcasts when clients connected |
 | sweex-capture | ~0.1% (sleeping) | ~0.1% (unchanged) | Already minimal — sleeps 5s between captures |
 
-#### Stream Auto-Reconnect (9 April 2026)
+#### Stream Auto-Reconnect (9 April 2026, updated 13 April)
 
-MJPEG streams over HTTP are vulnerable to browser throttling — when a tab is backgrounded or a device screen sleeps, the browser stops reading from the stream and the connection drops.
+All browsers use the same WebSocket relay — reconnect behavior is consistent across all platforms.
 
 | Scenario | Trigger | Recovery |
 |----------|---------|----------|
@@ -315,15 +315,17 @@ MJPEG streams over HTTP are vulnerable to browser throttling — when a tab is b
 
 **Before this fix:** User had to manually refresh the browser to restore the stream after backgrounding the tab or waking the device.
 
-#### Stream via WebSocket Relay (9 April 2026 — Smooth Playback)
+#### Stream via WebSocket Relay (9 April 2026 — Smooth Playback for All Browsers)
 
 All browsers use the same WebSocket-based MJPEG relay for smooth, consistent playback.
 
 **How it works:** WebSocket connection to `/ws/logitech/`. A Python asyncio relay server (`ws_relay.py`) reads the MJPEG stream from ustreamer, extracts individual JPEG frames, and pushes them as binary WebSocket messages. Each frame is drawn onto a `<canvas>` element. Throttled to ~20fps for smooth playback. Polling pauses when the tab is hidden (`visibilitychange`) and resumes when visible.
 
-**Before this fix:** Chrome/Firefox/Edge used native MJPEG via `<img>` which was jumpy — browser throttling, GC pauses, and connection drops caused visible stutter. Safari/iOS didn't handle native MJPEG at all.
+**Before this fix:** Chrome/Firefox/Edge used native MJPEG via `<img>` which was jumpy — browser throttling, GC pauses, and connection drops caused visible stutter. Safari/iOS didn't handle native MJPEG at all. Native MJPEG also suffered from silent connection drops when tabs were backgrounded, with no automatic recovery.
 
-**Why not native MJPEG:** The browser's async JPEG decoder fires decode requests that can pile up and reorder, causing frames to appear out of sequence or stutter. The WebSocket relay decouples frame receive from render, preventing decode pileup entirely.
+**13 April 2026 — Unified WebSocket for all browsers:** Removed the native MJPEG `<img>` fallback path for Chrome/Firefox/Edge. All browsers now use the WebSocket relay exclusively. This eliminates browser-specific behavior, silent connection drops, and the need for watchdog timers. The `isSafari`/`isIOS` browser detection variables were removed.
+
+**Why not native MJPEG:** The browser's async JPEG decoder fires decode requests that can pile up and reorder, causing frames to appear out of sequence or stutter. The WebSocket relay decouples frame receive from render, preventing decode pileup entirely. Additionally, browsers aggressively throttle background tab MJPEG connections, causing streams to go blank with no automatic recovery.
 
 **WebSocket relay architecture:**
 
