@@ -364,6 +364,9 @@
         .log-event.USER_CREATED { color: #a78bfa; }
         .log-event.USER_UPDATED { color: #f59e0b; }
         .log-event.USER_DELETED { color: #ef4444; }
+        .log-event.ROUTER_REBOOT_SENT { color: #f59e0b; }
+        .log-event.ROUTER_REBOOT_OK { color: #4ade80; }
+        .log-event.ROUTER_REBOOT_FAIL { color: #ef4444; }
         .log-ip { color: #666; font-size: 0.65rem; }
         .log-detail { color: #888; font-size: 0.68rem; word-break: break-all; }
         .pagination {
@@ -516,6 +519,10 @@
                         <option value="USER_CREATED">User Created</option>
                         <option value="USER_UPDATED">User Updated</option>
                         <option value="USER_DELETED">User Deleted</option>
+                        <option disabled>──────────</option>
+                        <option value="ROUTER_REBOOT_SENT">Router Reboot Sent</option>
+                        <option value="ROUTER_REBOOT_OK">Router Reboot OK</option>
+                        <option value="ROUTER_REBOOT_FAIL">Router Reboot Fail</option>
                     </select>
                     <input type="text" id="logUserFilter" placeholder="Filter by user" oninput="loadLogs()">
                 </div>
@@ -754,7 +761,7 @@
 
         function preloadLogs() {
             if (logCache && (Date.now() - logCacheTime) < LOG_CACHE_TTL) return;
-            api('/api/audit?page=1&per_page=20', { credentials: 'same-origin' })
+            api('/api/audit?page=1&per_page=50', { credentials: 'same-origin' })
                 .then(function(data) {
                     if (data.ok) {
                         logCache = data;
@@ -966,7 +973,7 @@
 
             tbody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
 
-            var url = '/api/audit?page=' + logPage + '&per_page=20';
+            var url = '/api/audit?page=' + logPage + '&per_page=50';
             if (eventFilter) url += '&event=' + encodeURIComponent(eventFilter);
             if (userFilter) url += '&username=' + encodeURIComponent(userFilter);
 
