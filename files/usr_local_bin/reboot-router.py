@@ -29,6 +29,7 @@ if not ROUTER_PASS:
     print("ERROR: ROUTER_PASS environment variable is required", file=sys.stderr)
     sys.exit(1)
 LOG_FILE = "/var/log/router-reboot.log"
+AUDIT_LOG_PATH = "/var/log/wcam-login.log"
 REBOOT_TIMEOUT = 180   # seconds to wait for router to come back
 POLL_INTERVAL = 10     # seconds between connectivity checks
 
@@ -58,6 +59,23 @@ class SafeLogger:
         print(line, file=sys.stderr)
 
 logger = SafeLogger(LOG_FILE)
+
+
+def audit_log(event, detail=""):
+    """Write an entry to the wcam-login audit log so it appears in the webGUI Event Log."""
+    import json
+    try:
+        entry = {
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "event": event,
+            "username": "system",
+            "ip": "127.0.0.1",
+            "detail": detail
+        }
+        with open(AUDIT_LOG_PATH, 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+    except OSError:
+        pass  # don't break the reboot if audit log is unavailable
 
 
 def get_session():
@@ -135,13 +153,16 @@ def main():
         logger.info("Sending reboot command...")
         trigger_reboot(session, form_id)
         logger.info("Reboot command sent successfully")
+        audit_log("ROUTER_REBOOT_SENT", "Reboot command sent to router at %s" % ROUTER_IP)
 
         wait_for_router()
         logger.info("Router reboot complete and verified")
+        audit_log("ROUTER_REBOOT_OK", "Router at %s rebooted successfully" % ROUTER_IP)
         return 0
 
     except Exception as e:
         logger.error(f"Router reboot FAILED: {e}")
+        audit_log("ROUTER_REBOOT_FAIL", str(e))
         return 1
 
 
