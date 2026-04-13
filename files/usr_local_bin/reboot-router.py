@@ -30,7 +30,7 @@ if not ROUTER_PASS:
     sys.exit(1)
 LOG_FILE = "/var/log/router-reboot.log"
 AUDIT_LOG_PATH = "/var/log/wcam-login.log"
-REBOOT_TIMEOUT = 180   # seconds to wait for router to come back
+REBOOT_TIMEOUT = 600   # seconds to wait for full DSL sync + internet
 POLL_INTERVAL = 10     # seconds between connectivity checks
 
 # --- Safe logging: try file, fall back to stderr ---
@@ -109,23 +109,89 @@ def trigger_reboot(session, form_id):
     return True
 
 
+def get_router_uptime(session):
+    """Fetch router uptime from RST_status.htm.
+
+    The page contains JS variables like: var wan_status = "HH:MM:SS";
+    Returns (hours, minutes, seconds) or None if not parseable.
+    """
+    try:
+        r = session.get(f"http://{ROUTER_IP}/RST_status.htm", timeout=5)
+        if r.status_code != 200:
+            return None
+        # Look for: var wan_status = "HH:MM:SS";
+        match = re.search(r'var\s+wan_status\s*=\s*["\']([0-9:]+)["\']', r.text)
+        if not match:
+            return None
+        parts = match.group(1).split(":")
+        if len(parts) == 3:
+            return (int(parts[0]), int(parts[1]), int(parts[2]))
+    except Exception:
+        pass
+    return None
+
+
 def wait_for_router(timeout=REBOOT_TIMEOUT, interval=POLL_INTERVAL):
-    """Wait for the router to come back online after reboot."""
-    logger.info("Waiting for router to reboot...")
+    """Wait for the router to fully reboot: web UI + internet + uptime confirmation."""
     start = time.time()
-    while time.time() - start < timeout:
+
+    # Stage 1: wait for router web interface
+    logger.info("Stage 1: Waiting for router web interface...")
+    web_timeout = 120  # 2 minutes for router OS to boot
+    web_session = None
+    while time.time() - start < web_timeout:
         try:
             r = requests.get(f"http://{ROUTER_IP}/", timeout=5)
             if r.status_code == 401:
-                # 401 means the web interface is up (auth required) — router is back
-                logger.info("Router web interface is back online (HTTP 401)")
-                return True
+                elapsed = int(time.time() - start)
+                logger.info("Router web interface is back online (HTTP 401) — %ds", elapsed)
+                # Re-authenticate to read status pages
+                web_session = get_session()
+                break
         except (requests.ConnectionError, requests.Timeout):
             pass
         elapsed = int(time.time() - start)
-        logger.info(f"  ... still waiting ({elapsed}s / {timeout}s)")
+        logger.info(f"  ... still waiting for web UI ({elapsed}s / {web_timeout}s)")
         time.sleep(interval)
-    raise RuntimeError(f"Router did not come back online within {timeout}s")
+    else:
+        raise RuntimeError(f"Router web interface did not come back within {web_timeout}s")
+
+    # Stage 2: wait for actual internet connectivity (DSL sync + PPP)
+    logger.info("Stage 2: Waiting for internet connectivity (DSL sync)...")
+    while time.time() - start < timeout:
+        try:
+            r = requests.get("https://1.1.1.1", timeout=5)
+            if r.status_code == 200:
+                elapsed = int(time.time() - start)
+                logger.info("Internet connectivity confirmed (1.1.1.1) — %ds", elapsed)
+                break
+        except (requests.ConnectionError, requests.Timeout):
+            pass
+        elapsed = int(time.time() - start)
+        logger.info(f"  ... still waiting for internet ({elapsed}s / {timeout}s)")
+        time.sleep(interval)
+    else:
+        raise RuntimeError(f"Internet did not come back within {timeout}s (web UI was up but DSL did not sync)")
+
+    # Stage 3: confirm reboot via router uptime (< 5 minutes = fresh reboot)
+    logger.info("Stage 3: Checking router uptime to confirm reboot...")
+    if web_session:
+        uptime = get_router_uptime(web_session)
+        if uptime:
+            h, m, s = uptime
+            total_minutes = h * 60 + m
+            uptime_str = "%dh %dm %ds" % (h, m, s)
+            logger.info("Router uptime: %s", uptime_str)
+            if total_minutes >= 5:
+                raise RuntimeError(
+                    "Router uptime is %s — does not look like a fresh reboot" % uptime_str
+                )
+            logger.info("Uptime confirms recent reboot (< 5 min)")
+            return uptime_str
+        else:
+            logger.info("Could not read router uptime (status page may have changed)")
+            return None
+    return None
 
 
 def main():
@@ -139,6 +205,7 @@ def main():
     if args.dry_run:
         logger.info("DRY RUN mode — will not actually reboot")
 
+    start_time = time.time()
     try:
         session = get_session()
         logger.info("Authenticated with router")
@@ -155,9 +222,14 @@ def main():
         logger.info("Reboot command sent successfully")
         audit_log("ROUTER_REBOOT_SENT", "Reboot command sent to router at %s" % ROUTER_IP)
 
-        wait_for_router()
-        logger.info("Router reboot complete and verified")
-        audit_log("ROUTER_REBOOT_OK", "Router at %s rebooted successfully" % ROUTER_IP)
+        uptime_str = wait_for_router()
+        elapsed = int(time.time() - start_time)
+        mins, secs = divmod(elapsed, 60)
+        detail = "Router at %s rebooted successfully in %d min %d sec" % (ROUTER_IP, mins, secs)
+        if uptime_str:
+            detail += " (uptime: %s)" % uptime_str
+        logger.info("Router reboot complete and verified (%d min %d sec)" % (mins, secs))
+        audit_log("ROUTER_REBOOT_OK", detail)
         return 0
 
     except Exception as e:
