@@ -1,7 +1,7 @@
 # Wanstead Pi — Webcam Project
 
 **Date:** 7 April 2026
-**Updated:** 13 April 2026 (12:30 BST) — Unified WebSocket relay for all browsers, removed native MJPEG path (Chrome/Firefox/Edge), removed 5s watchdog reload
+**Updated:** 13 April 2026 (13:45 BST) — Unified WebSocket relay for all browsers; Event Log shows all rotated files (50/page, timestamp-sorted); router reboot audit entries in webGUI, three-stage reboot verification with uptime confirmation; per_page default 50
 **Device:** Raspberry Pi (cellpi, kernel 6.12.75+rpt-rpi-v8, aarch64)
 **IP:** 192.168.0.18
 **Public IP:** 90.251.55.4 (dynamic, BT)
@@ -211,11 +211,11 @@ Session-based login on port 443 with role-based user management (9 April 2026):
 | `/api/audit` | GET | Admin only | Paginated login audit log (filters: event, username) |
 
 **Login audit log:**
-- File: `/var/log/wcam-login.log`
+- File: `/var/log/wcam-login.log` (rotated daily with date suffix: `wcam-login.log.2026-04-09`)
 - Format: JSON lines — `{timestamp, event, username, ip, detail}`
-- Events: `LOGIN_OK`, `LOGIN_FAIL`, `LOGOUT`, `USER_CREATED`, `USER_UPDATED`, `USER_DELETED`
+- Events: `LOGIN_OK`, `LOGIN_FAIL`, `LOGOUT`, `USER_CREATED`, `USER_UPDATED`, `USER_DELETED`, `ROUTER_REBOOT_SENT`, `ROUTER_REBOOT_OK`, `ROUTER_REBOOT_FAIL`, `SD_CARD_HEALTH`
 - Rotation: Python `TimedRotatingFileHandler` — daily, 365 backups (1 year retention)
-- Rotated files named with date suffix: `wcam-login.log.2026-04-09`
+- API reads **all** rotated files, sorted by timestamp descending (newest first). Default 50 entries per page.
 
 **Why not Basic Auth:** Browser-native Basic Auth dialogs are a magnet for automated scanning and brute-force attacks. A custom login page is less conspicuous and gives us control over the UX.
 
@@ -247,14 +247,31 @@ The Netgear D7000 has a firmware bug that causes the DSL connection to drop afte
 | Schedule | Cron, every Monday at 04:00 BST |
 | Log | `/var/log/router-reboot.log` |
 
-**How it works:**
+**How it works (three-stage verification, 13 April 2026):**
+
 1. Authenticate to router web interface via HTTP Basic Auth
 2. Fetch `reboot.htm` to get a dynamic form action ID (changes each session)
 3. POST to `setup.cgi?id=<id>` with `todo=reboot`
-4. Wait up to 180 seconds for the router to come back online (polls for HTTP 401)
-5. Log success or failure
+4. **Stage 1** — Wait for router web UI (HTTP 401 from `http://192.168.0.1/`), up to 2 min
+5. **Stage 2** — Wait for actual internet connectivity (HTTP 200 from `https://1.1.1.1`), up to 10 min. The web UI comes up in seconds but DSL sync takes minutes — this is the real test.
+6. **Stage 3** — Confirm reboot by reading router uptime from `RST_status.htm` (`var wan_status = "HH:MM:SS"`). If uptime > 5 min, the reboot didn't actually happen (stale web UI). Fails with `ROUTER_REBOOT_FAIL`.
+7. Log success or failure to both `/var/log/router-reboot.log` and the webGUI Event Log.
 
-**Confirmed working:** Tested live on 9 April 2026. Router rebooted at 09:44, DSL up at 09:45, internet restored at 09:45.
+**Timeout:** Increased from 180s to 600s (10 min) to allow full DSL sync time.
+
+**Audit log entries in webGUI Event Log (13 April 2026):**
+
+| Event | Username | Detail |
+|-------|----------|--------|
+| `ROUTER_REBOOT_SENT` | system | Reboot command sent to router at 192.168.0.1 |
+| `ROUTER_REBOOT_OK` | system | Router at 192.168.0.1 rebooted successfully in X min Y sec (uptime: Xh Ym Zs) |
+| `ROUTER_REBOOT_FAIL` | system | <error message> |
+
+Entries appear in the Event Log viewer (Admin → Event Log tab) and are filterable by the new "Router Reboot Sent/OK/Fail" dropdown options.
+
+**Confirmed working:** Tested live on 9 April 2026. Router rebooted at 09:44, DSL up at 09:45, internet restored at 09:45. Measured uptime on 13 April confirmed boot time of 04:02:46 (2 min 44 sec from cron start).
+
+**Uptime source:** `RST_status.htm` contains `var wan_status = "HH:MM:SS"` — parsed by `get_router_uptime()`. This is the definitive confirmation that a fresh reboot occurred.
 
 **Manual commands:**
 ```bash
@@ -550,7 +567,7 @@ curl -sk -b /tmp/cookies.txt -X DELETE http://127.0.0.1:8086/api/users/newuser  
 cat /etc/nginx/.wcam-users.json                  # View raw user database
 
 # Audit log (via API, admin only)
-curl -sk -b /tmp/cookies.txt "http://127.0.0.1:8086/api/audit?page=1&per_page=20"  # Recent entries
+curl -sk -b /tmp/cookies.txt "http://127.0.0.1:8086/api/audit?page=1&per_page=50"  # Recent entries
 curl -sk -b /tmp/cookies.txt "http://127.0.0.1:8086/api/audit?event=LOGIN_FAIL"     # Failed logins only
 curl -sk -b /tmp/cookies.txt "http://127.0.0.1:8086/api/audit?username=gduthie"     # Specific user
 
