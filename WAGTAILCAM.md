@@ -10,8 +10,8 @@ This project is a modified derivative of the [WansteadCam project](https://githu
 
 | URL | Purpose |
 |-----|---------|
-| https://wagtailcam.gdx.org.uk | Main access (HTTPS, auth required) |
-| http://wagtailcam.local:8085 | Local access (no auth) |
+| https://wagtailcam.gdx.org.uk | External access (HTTPS, auth required) |
+| http://wagtailcam.local | Local access (auth required, auto-upgrades to HTTPS) |
 
 **SSL Certificate:** Let's Encrypt (auto-renews via certbot.timer, runs ~1:10 AM daily)
 
