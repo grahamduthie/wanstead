@@ -15,6 +15,8 @@ This project is a modified derivative of the [WansteadCam project](https://githu
 
 **SSL Certificate:** Let's Encrypt (auto-renews via certbot.timer, runs ~1:10 AM daily)
 
+**Git Repository:** Initial commit made. Code on Mac at `/Users/gduthie/Programming/Wagtailcam/wanstead/`
+
 ---
 
 ## Hardware
@@ -37,11 +39,19 @@ The Logitech PTZ Pro 2 is detected as `/dev/video0` and `/dev/video1` via the UV
 | zoom_absolute | 100-1000 | 1.0x to 10x zoom |
 | focus_absolute | 0-255 | Manual focus (0 = auto) |
 | focus_automatic_continuous | 0/1 | Enable/disable auto focus |
+| auto_exposure | 0-3 | Auto (Aperture Priority) |
+| gain | 0-255 | Currently at max (255) for low light |
+| backlight_compensation | 0-1 | On (1) for window scenes |
 
 **Note:** PTZ Pro 2 has speed controls only (pan_speed, tilt_speed), not absolute position controls. This means:
 - Cannot return camera to a saved "home" position
 - Presets can only save/restore zoom and focus
 - Tilt range is physically limited (cannot tilt up as far as down)
+
+**Low Light Considerations:** The PTZ Pro 2 is a consumer camera, not a true security camera. For window scenes at night:
+- Performance will be limited
+- Consider external IR illumination for better night vision
+- Current settings maximize gain for low light
 
 ---
 
@@ -57,7 +67,7 @@ nginx (TLS + auth)
      │
      └─► /stream/* ────────────────► ustreamer (:8080) ─ MJPEG stream
      │
-     └─► /ws/stream/* ────────────► wcam-ws-relay (:8087) ─ WebSocket relay
+     └─► /ws/stream/* ────────────► wcam-ws-relay (:8087) ─ WebSocket relay (~20fps)
 ```
 
 ### Components
@@ -76,22 +86,20 @@ nginx (TLS + auth)
 ```
 wanstead/
 ├── README.md                    # Original WansteadCam documentation
-├── WAGTAILCAM.md                # This file
+├── WAGTAILCAM.md               # This file
 ├── files/
 │   ├── etc_nginx/
-│   │   ├── camviewer            # nginx site config (HTTPS + HTTP redirect)
-│   │   └── nginx.conf           # nginx main config
+│   │   └── camviewer           # nginx site config (HTTPS + auth + no-cache)
 │   ├── etc_systemd/
-│   │   ├── ustreamer.service    # uStreamer systemd service (1080p MJPEG)
-│   │   ├── wcam-auth.service    # Auth backend systemd service
+│   │   ├── ustreamer.service   # uStreamer systemd service (1080p MJPEG)
+│   │   ├── wcam-auth.service   # Auth backend systemd service
 │   │   └── wcam-ws-relay.service # WebSocket relay systemd service
-│   ├── usr_local_bin/           # Utility scripts
-│   └── var_www_camviewer/       # Web application
-│       ├── index.html           # Main camera viewer (single cam + PTZ)
-│       ├── login.html           # Login page
-│       ├── auth_server.py       # Flask auth backend + PTZ endpoint
-│       ├── ws_relay.py          # WebSocket MJPEG relay
-│       └── WagtailCam.png       # Logo image
+│   └── var_www_camviewer/     # Web application
+│       ├── index.html          # Main camera viewer (single cam + PTZ)
+│       ├── login.html          # Login page
+│       ├── auth_server.py      # Flask auth backend + PTZ endpoint
+│       ├── ws_relay.py        # WebSocket MJPEG relay
+│       └── WagtailCam.png     # Logo image
 ```
 
 ---
@@ -110,7 +118,10 @@ The following changes were made to adapt WansteadCam for WagtailCam:
   - D-pad for pan/tilt (hold to move, release to stop)
   - Zoom slider (1.0x - 10x)
   - Focus slider (Auto/Manual)
+  - PTZ state syncs every 5 seconds across browsers
 - Added `/api/ptz` endpoint to `auth_server.py` using `v4l2-ctl`
+- Added `/api/ptz/state` endpoint to read current camera state
+- **Admin-only access:** PTZ controls only visible to admin users
 
 ### 3. Logo
 - Custom WagtailCam.png logo in project directory
@@ -127,6 +138,17 @@ The following changes were made to adapt WansteadCam for WagtailCam:
 
 ### 6. Stream Resolution
 - Changed from 640x480 to 1920x1080 in ustreamer config
+
+### 7. Security Improvements
+- nginx auth_request protection on all pages and streams
+- Session cookie with Secure, HttpOnly, SameSite flags
+- No-cache headers on protected pages to prevent cached content after logout
+
+### 8. Mobile/Touch Improvements
+- `touch-action: manipulation` on PTZ buttons
+- `preventDefault()` on touch events
+- `ontouchcancel` handler for interrupted touches
+- Removed `:hover` CSS (causes issues on mobile)
 
 ---
 
@@ -230,6 +252,14 @@ Multiple parameters can be combined:
 /api/ptz?zoom=500&focus=0     # Zoom to 5x, auto focus
 ```
 
+### PTZ State API
+
+```
+GET /api/ptz/state             # Returns current zoom, focus, focus_auto values
+```
+
+Used by browser to sync PTZ state every 5 seconds.
+
 ### Other API Endpoints
 
 | Endpoint | Method | Purpose |
@@ -250,6 +280,22 @@ Multiple parameters can be combined:
 External access via https://wagtailcam.gdx.org.uk requires:
 - Port 80 → Pi port 80 (for Let's Encrypt certbot)
 - Port 443 → Pi port 443 (HTTPS)
+
+---
+
+## Known Issues / Troubleshooting
+
+### WiFi Connectivity
+The Pi may occasionally lose local network connectivity. If local access fails but external access works:
+```bash
+sudo ip link set wlan0 down && sleep 2 && sudo ip link set wlan0 up
+```
+
+### Camera Low Light
+The PTZ Pro 2 is a consumer camera. For window scenes at night:
+- Performance will be limited
+- Consider dedicated security camera with IR LEDs for night vision
+- Current gain is set to maximum (255) for low light
 
 ---
 
@@ -284,6 +330,8 @@ When continuing this project:
    - Manual renew: `sudo certbot renew`
 
 6. **Web Files**: `/var/www/camviewer/` (index.html, login.html, auth_server.py, ws_relay.py)
+
+7. **Git**: Code is tracked in git on the Mac at `/Users/gduthie/Programming/Wagtailcam/wanstead/`
 
 ---
 
