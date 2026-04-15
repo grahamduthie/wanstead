@@ -1,11 +1,11 @@
 [Unit]
-Description=uStreamer - Logitech QuickCam Pro 5000
+Description=uStreamer - Logitech PTZ Pro 2
 After=network.target
 
 [Service]
 ExecStart=/usr/bin/ustreamer \
   --device /dev/video0 \
-  --resolution 640x480 \
+  --resolution 1920x1080 \
   --format mjpeg \
   --desired-fps 30 \
   --persistent \
