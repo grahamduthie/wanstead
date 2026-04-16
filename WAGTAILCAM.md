@@ -8,6 +8,10 @@ This project is a modified derivative of the [WansteadCam project](https://githu
 
 **Status:** Live at https://wagtailcam.gdx.org.uk
 
+**Quick Links:**
+- [Live Camera](https://wagtailcam.gdx.org.uk/) - Main viewer
+- [Timelapse](https://wagtailcam.gdx.org.uk/timelapse.html) - View captured timelapse
+
 | URL | Purpose |
 |-----|---------|
 | https://wagtailcam.gdx.org.uk | External access (HTTPS, auth required) |
@@ -482,14 +486,29 @@ When continuing this project:
    /usr/local/bin/ptz-preset preset1     # Go to Preset 1
    ```
 
-5. **SSL Certificate**:
+6. **Timelapse**:
+   ```bash
+   # Test capture manually
+   /usr/local/bin/capture_timelapse.py
+   
+   # Check log
+   cat /var/log/timelapse.log
+   
+   # View captures on NAS
+   ls /mnt/nas/timelapse/
+   
+   # Check/manage cron
+   sudo crontab -l
+   ```
+
+7. **SSL Certificate**:
    - Certificate stored in `/etc/letsencrypt/live/wagtailcam.gdx.org.uk/`
    - Auto-renews daily via certbot.timer
    - Manual renew: `sudo certbot renew`
 
-6. **Web Files**: `/var/www/camviewer/` (index.html, login.html, auth_server.py, ws_relay.py)
+8. **Web Files**: `/var/www/camviewer/` (index.html, login.html, timelapse.html, auth_server.py, ws_relay.py)
 
-7. **Git**: Code is tracked in git on the Mac at `/Users/gduthie/Programming/Wagtailcam/wanstead/`
+9. **Git**: Code is tracked in git on the Mac at `/Users/gduthie/Programming/Wagtailcam/wanstead/`
 
 ---
 
