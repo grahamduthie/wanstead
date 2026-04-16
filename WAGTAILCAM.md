@@ -342,9 +342,24 @@ cat /var/log/timelapse.log
 # View captured images
 ls -la /mnt/nas/timelapse/2026-04-16/
 
+# Check capture status
+cat /var/www/camviewer/.capture_status.json
+
 # Stop capturing (remove cron)
 /usr/bin/crontab -r  # careful!
 ```
+
+### User Experience
+
+When a capture occurs while a user is viewing the live stream:
+1. Overlay appears on camera feed: "📷 Capturing..."
+2. PTZ controls are temporarily disabled
+3. Camera moves to Preset 1 position
+4. Frame is captured
+5. Brief "✓ Captured" confirmation shown
+6. PTZ controls re-enabled
+
+This ensures users are informed and prevents PTZ conflicts during capture.
 
 ---
 

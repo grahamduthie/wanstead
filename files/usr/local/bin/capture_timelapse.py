@@ -20,6 +20,18 @@ CAMERA_LAT = 51.48
 CAMERA_LON = -1.0
 BUFFER_MINUTES = 30
 CAPTURE_INTERVAL = 5
+CAPTURE_STATUS_FILE = "/var/www/camviewer/.capture_status.json"
+
+
+def set_capture_status(capturing, message=""):
+    """Set capture status for browser notification."""
+    import json
+
+    try:
+        with open(CAPTURE_STATUS_FILE, "w") as f:
+            json.dump({"capturing": capturing, "message": message}, f)
+    except Exception as e:
+        print(f"Status write error: {e}")
 
 
 def get_daylight_window(date):
@@ -122,11 +134,17 @@ def main():
         sys.exit(0)
 
     print(f"Moving to Preset 1...")
+    set_capture_status(True, "Timelapse capture...")
+
     if not go_to_preset1():
+        set_capture_status(False)
         sys.exit(1)
 
     print(f"Capturing frame...")
     filepath, size = capture_frame()
+
+    set_capture_status(False)
+
     if filepath:
         print(f"Captured: {filepath} ({size} bytes)")
     else:

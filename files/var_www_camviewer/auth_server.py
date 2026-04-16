@@ -1058,9 +1058,53 @@ def api_preset_name(preset_num):
 
 
 TIMELAPSE_DIR = "/mnt/nas/timelapse"
+CAPTURE_STATUS_FILE = "/var/www/camviewer/.capture_status.json"
+
+
+@app.route("/api/capture/status", methods=["GET"])
+def api_capture_status():
+    """Get current capture status for browser notifications."""
+    import json
+
+    try:
+        with open(CAPTURE_STATUS_FILE, "r") as f:
+            status = json.load(f)
+        return jsonify({"ok": True, "status": status})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return jsonify({"ok": True, "status": {"capturing": False, "message": ""}})
+
+
+@app.route("/api/capture/status", methods=["POST"])
+def api_capture_status_set():
+    """Set capture status (called by capture script)."""
+    import json
+
+    try:
+        data = request.get_json()
+        with open(CAPTURE_STATUS_FILE, "w") as f:
+            json.dump(data, f)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def require_login(f):
+    """Decorator to require valid session."""
+    from functools import wraps
+
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.cookies.get(SESSION_COOKIE_NAME)
+        info = verify_session(token)
+        if not info:
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+
+    return decorated
 
 
 @app.route("/api/timelapse/list", methods=["GET"])
+@require_login
 def api_timelapse_list():
     """List all images for a given date."""
     import os
@@ -1081,6 +1125,7 @@ def api_timelapse_list():
 
 
 @app.route("/api/timelapse/image", methods=["GET"])
+@require_login
 def api_timelapse_image():
     """Serve a timelapse image."""
     import os
@@ -1103,6 +1148,7 @@ def api_timelapse_image():
 
 
 @app.route("/api/timelapse/download", methods=["GET"])
+@require_login
 def api_timelapse_download():
     """Download all images for a date as a zip file."""
     import os

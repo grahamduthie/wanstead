@@ -74,6 +74,26 @@
             background: #ef4444;
             color: #fff;
         }
+        .timelapse-btn {
+            padding: 0.45rem 0.75rem;
+            border-radius: 6px;
+            background: transparent;
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #3b82f6;
+            color: #3b82f6;
+            text-decoration: none;
+        }
+        .timelapse-btn:hover, .timelapse-btn:active {
+            background: #3b82f6;
+            color: #fff;
+        }
         .container {
             display: grid;
             grid-template-columns: 1fr;
@@ -544,6 +564,46 @@
             margin-top: 0.3rem;
             min-height: 1em;
         }
+        .capture-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 0.5rem;
+            z-index: 100;
+            border-radius: 12px;
+        }
+        .capture-overlay.active {
+            display: flex;
+        }
+        .capture-overlay .capture-icon {
+            font-size: 2rem;
+            animation: pulse 1s ease-in-out infinite;
+        }
+        .capture-overlay .capture-text {
+            color: #4ade80;
+            font-size: 0.9rem;
+        }
+        .capture-overlay .capture-done {
+            color: #4ade80;
+            font-size: 0.9rem;
+        }
+        .ptz-panel.disabled .ptz-btn,
+        .ptz-panel.disabled .ptz-slider,
+        .ptz-panel.disabled .preset-btn {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
         .rename-hint {
             font-size: 0.6rem;
             color: #888;
@@ -639,6 +699,7 @@
             <p id="clock"></p>
         </div>
         <div class="header-right">
+            <a href="/timelapse.html" class="timelapse-btn">&#128247; Timelapse</a>
             <button class="admin-btn" id="adminBtn" style="display:none" onclick="openAdminModal()">&#9881; Admin</button>
             <button class="logout-btn" onclick="doLogout()">&#128274; Logout</button>
         </div>
@@ -653,6 +714,10 @@
                 </div>
             </div>
             <div class="camera-feed" id="streamFeed">
+                <div class="capture-overlay" id="captureOverlay">
+                    <div class="capture-icon">&#128247;</div>
+                    <div class="capture-text" id="captureText">Capturing...</div>
+                </div>
             </div>
             <div class="camera-info">
                 <span id="streamInfo">1920x1080 @ 30fps &mdash; Live Stream</span>
@@ -877,8 +942,10 @@
         var ptzInterval = null;
         var currentZoom = 100;
         var currentFocus = 0;
+        var captureInProgress = false;
 
         function ptzStart(direction) {
+            if (captureInProgress) return;
             if (ptzInterval) clearInterval(ptzInterval);
             var speed = direction === 'up' || direction === 'right' ? 1 : -1;
             api('/api/ptz?pan=' + (direction === 'left' || direction === 'right' ? speed : 0) + '&tilt=' + (direction === 'up' || direction === 'down' ? speed : 0));
@@ -911,6 +978,7 @@
         function loadSavedPreset() {
             loadPresetNames();
             syncPtzState();
+            checkCaptureStatus();
         }
 
         function loadPresetNames() {
@@ -988,6 +1056,52 @@
         }
 
         setInterval(syncPtzState, 5000);
+
+        var lastCaptureCheck = false;
+
+        function checkCaptureStatus() {
+            api('/api/capture/status')
+                .then(function(data) {
+                    if (data.ok && data.status) {
+                        var isCapturing = data.status.capturing;
+                        
+                        if (isCapturing !== lastCaptureCheck) {
+                            lastCaptureCheck = isCapturing;
+                            
+                            if (isCapturing) {
+                                captureInProgress = true;
+                                var overlay = document.getElementById('captureOverlay');
+                                var text = document.getElementById('captureText');
+                                var ptzPanel = document.getElementById('ptzPanel');
+                                
+                                if (overlay) {
+                                    text.textContent = data.status.message || 'Capturing...';
+                                    text.className = 'capture-text';
+                                    overlay.classList.add('active');
+                                }
+                                if (ptzPanel) ptzPanel.classList.add('disabled');
+                            } else {
+                                captureInProgress = false;
+                                var overlay = document.getElementById('captureOverlay');
+                                var text = document.getElementById('captureText');
+                                var ptzPanel = document.getElementById('ptzPanel');
+                                
+                                if (overlay) {
+                                    text.textContent = '\u2713 Captured';
+                                    text.className = 'capture-done';
+                                    setTimeout(function() {
+                                        overlay.classList.remove('active');
+                                    }, 1500);
+                                }
+                                if (ptzPanel) ptzPanel.classList.remove('disabled');
+                            }
+                        }
+                    }
+                })
+                .catch(function() {});
+        }
+
+        setInterval(checkCaptureStatus, 2000);
 
         var presetSaveMode = null;
 
