@@ -577,10 +577,10 @@
                         <span class="ptz-value" id="zoomValue">1.0x</span>
                     </div>
                     <div class="ptz-dpad">
-                        <button class="ptz-btn ptz-btn-row1" id="btnUp" onmousedown="ptzStart('up')" onmouseup="ptzStop()" onmouseleave="ptzStop()" ontouchstart="ptzStart('up'); event.preventDefault()" ontouchend="ptzStop(); event.preventDefault()" ontouchcancel="ptzStop()">&#9650;</button>
-                        <button class="ptz-btn ptz-btn-col1" id="btnLeft" onmousedown="ptzStart('left')" onmouseup="ptzStop()" onmouseleave="ptzStop()" ontouchstart="ptzStart('left'); event.preventDefault()" ontouchend="ptzStop(); event.preventDefault()" ontouchcancel="ptzStop()">&#9664;</button>
-                        <button class="ptz-btn ptz-btn-col3" id="btnRight" onmousedown="ptzStart('right')" onmouseup="ptzStop()" onmouseleave="ptzStop()" ontouchstart="ptzStart('right'); event.preventDefault()" ontouchend="ptzStop(); event.preventDefault()" ontouchcancel="ptzStop()">&#9654;</button>
-                        <button class="ptz-btn ptz-btn-row3" id="btnDown" onmousedown="ptzStart('down')" onmouseup="ptzStop()" onmouseleave="ptzStop()" ontouchstart="ptzStart('down'); event.preventDefault()" ontouchend="ptzStop(); event.preventDefault()" ontouchcancel="ptzStop()">&#9660;</button>
+                        <button class="ptz-btn ptz-btn-row1" id="btnUp" onpointerdown="if(event.pointerType==='touch'||event.pointerType==='mouse'){ptzStart('up');event.preventDefault();}" onpointerup="ptzStop()" onpointerleave="ptzStop()">&#9650;</button>
+                        <button class="ptz-btn ptz-btn-col1" id="btnLeft" onpointerdown="if(event.pointerType==='touch'||event.pointerType==='mouse'){ptzStart('left');event.preventDefault();}" onpointerup="ptzStop()" onpointerleave="ptzStop()">&#9664;</button>
+                        <button class="ptz-btn ptz-btn-col3" id="btnRight" onpointerdown="if(event.pointerType==='touch'||event.pointerType==='mouse'){ptzStart('right');event.preventDefault();}" onpointerup="ptzStop()" onpointerleave="ptzStop()">&#9654;</button>
+                        <button class="ptz-btn ptz-btn-row3" id="btnDown" onpointerdown="if(event.pointerType==='touch'||event.pointerType==='mouse'){ptzStart('down');event.preventDefault();}" onpointerup="ptzStop()" onpointerleave="ptzStop()">&#9660;</button>
                     </div>
                     <div class="ptz-slider-group">
                         <label>Focus</label>

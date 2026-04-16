@@ -128,7 +128,7 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.ok) {
-                    window.location.href = '/';
+                    window.location.href = '/index.html';
                 } else {
                     errorEl.textContent = data.error || 'Login failed';
                     btn.disabled = false;
