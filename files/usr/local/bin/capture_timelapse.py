@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
 Capture a frame from the camera for timelapse.
-Goes to Preset 1 position, waits for settle, captures JPEG.
+Goes to Preset 1 position, applies saved focus, waits for settle, captures JPEG.
 Only captures during daylight hours (30 min before sunrise to 30 min after sunset).
 """
 
 import subprocess
 import os
 import sys
+import json
 from datetime import datetime, timedelta
 from astral import LocationInfo
 from astral.sun import sun
@@ -16,11 +17,12 @@ NAS_MOUNT = "/mnt/nas"
 TIMELAPSE_DIR = os.path.join(NAS_MOUNT, "timelapse")
 PRESET_BIN = "/usr/local/bin/ptz-preset"
 USTREAMER_URL = "http://localhost:8080/snapshot"
+DEVICE = "/dev/video0"
 CAMERA_LAT = 51.48
 CAMERA_LON = -1.0
 BUFFER_MINUTES = 30
-CAPTURE_INTERVAL = 5
 CAPTURE_STATUS_FILE = "/var/www/camviewer/.capture_status.json"
+PRESET_NAMES_FILE = "/var/www/camviewer/.preset_names.json"
 
 
 def set_capture_status(capturing, message=""):
@@ -64,8 +66,40 @@ def ensure_dir(path):
         os.makedirs(path)
 
 
+def load_preset_focus(preset_num):
+    """Load focus value for a preset. Returns None if not set."""
+    try:
+        with open(PRESET_NAMES_FILE, "r") as f:
+            data = json.load(f)
+            key = str(preset_num)
+            if key in data and isinstance(data[key], dict):
+                return data[key].get("focus")
+            return None
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def set_camera_focus(focus_value):
+    """Set camera focus to a specific value (0-255) and disable auto-focus."""
+    try:
+        subprocess.run(
+            ["v4l2-ctl", "-d", DEVICE, "-c", f"focus_automatic_continuous=0"],
+            capture_output=True,
+            timeout=2,
+        )
+        subprocess.run(
+            ["v4l2-ctl", "-d", DEVICE, "-c", f"focus_absolute={focus_value}"],
+            capture_output=True,
+            timeout=2,
+        )
+        return True
+    except Exception as e:
+        print(f"Focus set error: {e}")
+        return False
+
+
 def go_to_preset1():
-    """Move camera to Preset 1 position."""
+    """Move camera to Preset 1 position and apply saved focus."""
     try:
         result = subprocess.run([PRESET_BIN, "home"], capture_output=True, timeout=5)
         if result.returncode != 0:
@@ -89,13 +123,19 @@ def go_to_preset1():
         return False
 
     time.sleep(1.5)
+
+    focus = load_preset_focus(1)
+    if focus is not None:
+        print(f"Applying saved focus: {focus}")
+        set_camera_focus(focus)
+        time.sleep(0.5)
+
     return True
 
 
 def capture_frame():
-    """Capture a single frame from ustreamer."""
+    """Capture a single frame from ustreamer with JPEG validation."""
     import urllib.request
-    import hashlib
 
     today_dir = os.path.join(TIMELAPSE_DIR, datetime.now().strftime("%Y-%m-%d"))
     ensure_dir(today_dir)
@@ -110,6 +150,14 @@ def capture_frame():
         )
         with urllib.request.urlopen(req, timeout=10) as response:
             data = response.read()
+
+        if len(data) < 1000:
+            print(f"Capture error: response too small ({len(data)} bytes)")
+            return None, None
+
+        if data[0:2] != b"\xff\xd8":
+            print(f"Capture error: not a valid JPEG (magic: {data[0:3].hex()})")
+            return None, None
 
         with open(filepath, "wb") as f:
             f.write(data)

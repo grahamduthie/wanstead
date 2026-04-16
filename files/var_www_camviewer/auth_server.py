@@ -25,10 +25,14 @@ app = Flask(__name__)
 USERS_FILE = "/etc/nginx/.wcam-users.json"
 SESSION_COOKIE_NAME = "wcam_session"
 SESSION_TTL = 86400  # 24 hours
+SESSION_DIR = "/var/www/camviewer/.sessions"
+SESSION_RATE_LIMIT_FILE = "/var/www/camviewer/.rate_limit.json"
+RATE_LIMIT_WINDOW = 300  # 5 minutes
+RATE_LIMIT_MAX = 10  # max 10 login attempts per window
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
-# --- In-memory session store: token -> {username, is_admin, expires} ---
-sessions = {}
+# --- File-backed session store: sessions stored as individual JSON files ---
+# This ensures sessions persist across restarts and work with multiple workers
 
 
 # --- Safe logging handler: falls back to stderr on any I/O error ---
@@ -301,19 +305,36 @@ def verify_password(username, password):
         return False
 
 
+def _get_session_path(token):
+    """Get the file path for a session token."""
+    return os.path.join(SESSION_DIR, f"session_{token[:2]}", f"{token}.json")
+
+
+def _ensure_session_dir():
+    """Ensure the session directory structure exists."""
+    subdir = os.path.join(SESSION_DIR, "session_00")
+    os.makedirs(subdir, exist_ok=True)
+
+
 def create_session(username, is_admin):
     """Create a new session and return the token."""
+    _ensure_session_dir()
     token = secrets.token_urlsafe(32)
-    sessions[token] = {
+    session_data = {
         "username": username,
         "is_admin": is_admin,
         "expires": time.time() + SESSION_TTL,
     }
-    # Clean expired sessions
-    now = time.time()
-    expired = [t for t, s in sessions.items() if s["expires"] < now]
-    for t in expired:
-        del sessions[t]
+    session_path = _get_session_path(token)
+    os.makedirs(os.path.dirname(session_path), exist_ok=True)
+    try:
+        with open(session_path, "w") as f:
+            json.dump(session_data, f)
+            f.flush()
+            os.fsync(f.fileno())
+    except OSError as e:
+        auth_logger.error("SESSION_CREATE_FAILED: %s — %s", token[:8], e)
+        return None
     return token
 
 
@@ -321,13 +342,136 @@ def verify_session(token):
     """Verify a session token. Returns {username, is_admin} or None."""
     if not token:
         return None
-    session = sessions.get(token)
-    if not session:
+    session_path = _get_session_path(token)
+    try:
+        with open(session_path, "r") as f:
+            session = json.load(f)
+        if session["expires"] < time.time():
+            os.unlink(session_path)
+            return None
+        return {"username": session["username"], "is_admin": session["is_admin"]}
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
         return None
-    if session["expires"] < time.time():
-        del sessions[token]
+    except OSError as e:
+        auth_logger.warning("SESSION_READ_ERROR: %s — %s", token[:8], e)
         return None
-    return {"username": session["username"], "is_admin": session["is_admin"]}
+
+
+def check_rate_limit(ip):
+    """Check if IP is rate limited. Returns (allowed, remaining_attempts)."""
+    try:
+        if os.path.exists(SESSION_RATE_LIMIT_FILE):
+            with open(SESSION_RATE_LIMIT_FILE, "r") as f:
+                data = json.load(f)
+        else:
+            data = {"attempts": {}}
+    except (json.JSONDecodeError, OSError):
+        data = {"attempts": {}}
+
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+
+    data["attempts"] = {
+        k: [t for t in v if t > window_start] for k, v in data["attempts"].items()
+    }
+
+    ip_attempts = data["attempts"].get(ip, [])
+    remaining = RATE_LIMIT_MAX - len(ip_attempts)
+
+    if remaining <= 0:
+        return False, 0
+
+    return True, remaining
+
+
+def record_failed_attempt(ip):
+    """Record a failed login attempt for rate limiting."""
+    try:
+        if os.path.exists(SESSION_RATE_LIMIT_FILE):
+            with open(SESSION_RATE_LIMIT_FILE, "r") as f:
+                data = json.load(f)
+        else:
+            data = {"attempts": {}}
+    except (json.JSONDecodeError, OSError):
+        data = {"attempts": {}}
+
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+
+    if ip not in data["attempts"]:
+        data["attempts"][ip] = []
+    data["attempts"][ip] = [t for t in data["attempts"][ip] if t > window_start]
+    data["attempts"][ip].append(now)
+
+    try:
+        with open(SESSION_RATE_LIMIT_FILE, "w") as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+    except OSError as e:
+        auth_logger.warning("RATE_LIMIT_WRITE_ERROR: %s", e)
+
+
+def clear_rate_limit(ip):
+    """Clear rate limit for IP after successful login."""
+    try:
+        if os.path.exists(SESSION_RATE_LIMIT_FILE):
+            with open(SESSION_RATE_LIMIT_FILE, "r") as f:
+                data = json.load(f)
+        else:
+            return
+    except (json.JSONDecodeError, OSError):
+        return
+
+    if ip in data["attempts"]:
+        del data["attempts"][ip]
+        try:
+            with open(SESSION_RATE_LIMIT_FILE, "w") as f:
+                json.dump(data, f)
+                f.flush()
+                os.fsync(f.fileno())
+        except OSError:
+            pass
+
+
+def delete_session(token):
+    """Delete a session file."""
+    if not token:
+        return
+    session_path = _get_session_path(token)
+    try:
+        os.unlink(session_path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        auth_logger.warning("SESSION_DELETE_ERROR: %s — %s", token[:8], e)
+
+
+def clean_expired_sessions():
+    """Remove expired session files. Called periodically."""
+    if not os.path.isdir(SESSION_DIR):
+        return
+    now = time.time()
+    for subdir in os.listdir(SESSION_DIR):
+        subdir_path = os.path.join(SESSION_DIR, subdir)
+        if not os.path.isdir(subdir_path):
+            continue
+        for filename in os.listdir(subdir_path):
+            if not filename.endswith(".json"):
+                continue
+            filepath = os.path.join(subdir_path, filename)
+            try:
+                with open(filepath, "r") as f:
+                    session = json.load(f)
+                if session.get("expires", 0) < now:
+                    os.unlink(filepath)
+            except (FileNotFoundError, json.JSONDecodeError, KeyError):
+                try:
+                    os.unlink(filepath)
+                except OSError:
+                    pass
+            except OSError:
+                pass
 
 
 def require_admin():
@@ -416,8 +560,8 @@ def get_sd_card_health():
         if io_errors > 0:
             issues.append(f"{io_errors} I/O errors in dmesg")
             status = "critical"
-    except Exception:
-        pass  # dmesg may not be available
+    except Exception as e:
+        auth_logger.debug("DMESG_CHECK_SKIP: %s", e)
 
     # Check filesystem state
     try:
@@ -439,8 +583,8 @@ def get_sd_card_health():
             if line.startswith("Last checked:"):
                 last_checked = line.split(":", 1)[1].strip()
                 issues.append(f"Last checked: {last_checked}")
-    except Exception:
-        pass
+    except Exception as e:
+        auth_logger.debug("TUNE2FS_CHECK_SKIP: %s", e)
 
     # Check for reboot recovery marker
     reboot_marker = "/var/log/.fs_recovery_reboot_pending"
@@ -493,8 +637,8 @@ def api_health():
     # Log SD card health to audit log periodically (visible in webGUI log viewer)
     try:
         log_sd_card_health_if_due()
-    except Exception:
-        pass  # Don't break health endpoint if audit logging fails
+    except Exception as e:
+        auth_logger.debug("SD_HEALTH_LOG_SKIP: %s", e)
 
     status = {
         "ok": fs_ok and sd_health["status"] != "critical",
@@ -512,13 +656,22 @@ def api_health():
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
+    client_ip = get_client_ip()
+
+    allowed, remaining = check_rate_limit(client_ip)
+    if not allowed:
+        auth_logger.warning("RATE_LIMITED ip=%s", client_ip)
+        audit_log("RATE_LIMITED", "unknown", client_ip, "too_many_attempts")
+        return jsonify(
+            {"ok": False, "error": "Too many login attempts. Try again later."}
+        ), 429
+
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"ok": False, "error": "Invalid request"}), 400
 
     username = data.get("username", "").strip()
     password = data.get("password", "")
-    client_ip = get_client_ip()
 
     if not username or not password:
         return jsonify({"ok": False, "error": "Username and password required"}), 400
@@ -526,7 +679,10 @@ def api_login():
     users = load_users()
     user = users.get(username)
     if user and verify_password(username, password):
+        clear_rate_limit(client_ip)
         token = create_session(username, user.get("is_admin", False))
+        if not token:
+            return jsonify({"ok": False, "error": "Session creation failed"}), 500
         auth_logger.info("LOGIN_OK user=%s ip=%s", username, client_ip)
         audit_log("LOGIN_OK", username, client_ip)
         resp = jsonify({"ok": True})
@@ -541,6 +697,7 @@ def api_login():
         )
         return resp
     else:
+        record_failed_attempt(client_ip)
         auth_logger.warning("LOGIN_FAIL user=%s ip=%s", username, client_ip)
         audit_log("LOGIN_FAIL", username, client_ip, "invalid_credentials")
         return jsonify({"ok": False, "error": "Invalid username or password"}), 401
@@ -577,8 +734,7 @@ def api_logout():
     info = verify_session(token)
     if info:
         audit_log("LOGOUT", info["username"], get_client_ip())
-    if token and token in sessions:
-        del sessions[token]
+    delete_session(token)
     resp = jsonify({"ok": True})
     resp.set_cookie(SESSION_COOKIE_NAME, "", expires=0, path="/")
     return resp
@@ -635,9 +791,9 @@ def api_create_user():
     if username in users:
         return jsonify({"ok": False, "error": "Username already exists"}), 409
 
-    # Hash password with bcrypt
+    # Hash password with bcrypt (12 rounds per OWASP 2026 recommendation)
     password_hash = bcrypt.hashpw(
-        password.encode("utf-8"), bcrypt.gensalt(rounds=10)
+        password.encode("utf-8"), bcrypt.gensalt(rounds=12)
     ).decode("utf-8")
     users[username] = {"hash": password_hash, "is_admin": is_admin}
     if not save_users(users):
@@ -699,7 +855,7 @@ def api_update_user(target_username):
     user_record = dict(users[target_username])
     if new_password:
         user_record["hash"] = bcrypt.hashpw(
-            new_password.encode("utf-8"), bcrypt.gensalt(rounds=10)
+            new_password.encode("utf-8"), bcrypt.gensalt(rounds=12)
         ).decode("utf-8")
     user_record["is_admin"] = new_is_admin
 
@@ -1013,18 +1169,28 @@ PRESET_NAMES_FILE = "/var/www/camviewer/.preset_names.json"
 
 
 def load_preset_names():
-    """Load preset names from JSON file."""
+    """Load preset names and focus values from JSON file."""
     import json
 
     try:
         with open(PRESET_NAMES_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            for i in ["1", "2", "3"]:
+                if i not in data:
+                    data[i] = {"name": "", "focus": None}
+                elif isinstance(data[i], str):
+                    data[i] = {"name": data[i], "focus": None}
+            return data
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"1": "", "2": "", "3": ""}
+        return {
+            "1": {"name": "", "focus": None},
+            "2": {"name": "", "focus": None},
+            "3": {"name": "", "focus": None},
+        }
 
 
 def save_preset_names(names):
-    """Save preset names to JSON file."""
+    """Save preset names and focus values to JSON file."""
     import json
 
     with open(PRESET_NAMES_FILE, "w") as f:
@@ -1033,28 +1199,40 @@ def save_preset_names(names):
 
 @app.route("/api/preset/names", methods=["GET"])
 def api_preset_names():
-    """Get all preset names."""
+    """Get all preset names and focus values."""
     names = load_preset_names()
-    return jsonify({"ok": True, "names": names})
+    return jsonify({"ok": True, "presets": names})
 
 
-@app.route("/api/preset/name/<int:preset_num>", methods=["PUT"])
-def api_preset_name(preset_num):
-    """Set the name for a preset."""
-    import json
-
+@app.route("/api/preset/<int:preset_num>", methods=["PUT"])
+def api_preset_update(preset_num):
+    """Update preset name and/or focus value."""
     if preset_num not in (1, 2, 3):
         return jsonify({"ok": False, "error": "Preset must be 1, 2, or 3"}), 400
 
     try:
         data = request.get_json()
-        name = data.get("name", "")[:50]  # Max 50 chars
-        names = load_preset_names()
-        names[str(preset_num)] = name
-        save_preset_names(names)
-        return jsonify({"ok": True})
+        presets = load_preset_names()
+        key = str(preset_num)
+        if "name" in data:
+            presets[key]["name"] = data["name"][:50]
+        if "focus" in data:
+            focus = data["focus"]
+            if focus is None or (isinstance(focus, int) and 0 <= focus <= 255):
+                presets[key]["focus"] = focus
+        save_preset_names(presets)
+        return jsonify({"ok": True, "preset": presets[key]})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/preset/<int:preset_num>/focus", methods=["GET"])
+def api_preset_focus(preset_num):
+    """Get the focus value for a preset."""
+    if preset_num not in (1, 2, 3):
+        return jsonify({"ok": False, "error": "Preset must be 1, 2, or 3"}), 400
+    presets = load_preset_names()
+    return jsonify({"ok": True, "focus": presets[str(preset_num)]["focus"]})
 
 
 TIMELAPSE_DIR = "/mnt/nas/timelapse"

@@ -9,9 +9,11 @@ reliably. Clients connect via ws:// and receive binary JPEG frames.
 
 Runs under systemd: wcam-ws-relay.service
 """
+
 import asyncio
 import logging
 import logging.handlers
+import os
 import sys
 
 import websockets
@@ -27,10 +29,11 @@ MAX_CLIENTS = 10
 
 # --- Safe logging handler: falls back to stderr on any I/O error ---
 
+
 class SafeRotatingHandler(logging.handlers.BaseRotatingHandler):
     """RotatingFileHandler that never crashes. Falls back to stderr on I/O errors."""
 
-    def __init__(self, filename, maxBytes=0, backupCount=0, encoding='utf-8'):
+    def __init__(self, filename, maxBytes=0, backupCount=0, encoding="utf-8"):
         self._filename = filename
         self._maxBytes = maxBytes
         self._backupCount = backupCount
@@ -47,12 +50,12 @@ class SafeRotatingHandler(logging.handlers.BaseRotatingHandler):
         try:
             if self._stream and not self._stream.closed:
                 self._stream.close()
-            self._stream = open(self.baseFilename, 'a', encoding=self._encoding)
+            self._stream = open(self.baseFilename, "a", encoding=self._encoding)
             self._broken = False
         except OSError:
             self._broken = True
             self._stream = None
-            print(f'SAFE_HANDLER_BROKEN: cannot open {self._filename}', file=sys.stderr)
+            print(f"SAFE_HANDLER_BROKEN: cannot open {self._filename}", file=sys.stderr)
 
     def shouldRollover(self, record):
         if self._broken or self._stream is None:
@@ -65,13 +68,13 @@ class SafeRotatingHandler(logging.handlers.BaseRotatingHandler):
     def doRollover(self):
         if self.backupCount > 0:
             for i in range(self.backupCount - 1, 0, -1):
-                sfn = f'{self.baseFilename}.{i}'
-                dfn = f'{self.baseFilename}.{i + 1}'
+                sfn = f"{self.baseFilename}.{i}"
+                dfn = f"{self.baseFilename}.{i + 1}"
                 if os.path.exists(sfn):
                     if os.path.exists(dfn):
                         os.remove(dfn)
                     os.rename(sfn, dfn)
-            dfn = self.baseFilename + '.1'
+            dfn = self.baseFilename + ".1"
             if os.path.exists(self.baseFilename):
                 os.rename(self.baseFilename, dfn)
         self._open_file()
@@ -81,13 +84,13 @@ class SafeRotatingHandler(logging.handlers.BaseRotatingHandler):
             if self._broken:
                 self._open_file()
                 if self._broken:
-                    raise OSError(f'Cannot open {self._filename}')
+                    raise OSError(f"Cannot open {self._filename}")
             if self.shouldRollover(record):
                 self.doRollover()
                 if self._broken:
-                    raise OSError(f'Rollover failed for {self._filename}')
+                    raise OSError(f"Rollover failed for {self._filename}")
             if self._stream is None:
-                raise OSError(f'No stream for {self._filename}')
+                raise OSError(f"No stream for {self._filename}")
             msg = self.format(record)
             self._stream.write(msg + self.terminator)
             self._stream.flush()
@@ -96,7 +99,7 @@ class SafeRotatingHandler(logging.handlers.BaseRotatingHandler):
             if self._stream and not self._stream.closed:
                 self._stream.close()
             self._stream = None
-            print(f'LOG_FALLBACK: {self.format(record)}', file=sys.stderr)
+            print(f"LOG_FALLBACK: {self.format(record)}", file=sys.stderr)
 
 
 # --- Logging ---

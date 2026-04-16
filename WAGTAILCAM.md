@@ -72,7 +72,9 @@ The PTZ Pro 2 has built-in preset functionality accessible via UVC Extension Uni
 - **Recall**: Camera goes home (resets pan/tilt/zoom) → Camera moves to saved preset position
 - **Home**: Camera returns to home position (pan/tilt only, zoom unchanged)
 
-**Preset Naming:** Right-click (or long-press on mobile) any preset button to assign a custom name. Names are stored in `/var/www/camviewer/.preset_names.json`.
+**Preset Naming:** Right-click (or long-press on mobile) any preset button to assign a custom name and focus value. Stored in `/var/www/camviewer/.preset_names.json`.
+
+**Preset Focus Setting:** Each preset can have a fixed focus value (0-255) for consistent timelapse captures. Set "Use Current" to capture the camera's current focus, or leave empty for auto-focus.
 
 **Note:** Presets save the complete camera state including pan, tilt, zoom, and focus positions.
 
@@ -124,6 +126,7 @@ wanstead/
 │       ├── login.html          # Login page
 │       ├── auth_server.py      # Flask auth backend + PTZ + preset endpoints
 │       ├── ws_relay.py        # WebSocket MJPEG relay
+│       ├── config.json.example # Configuration template
 │       └── WagtailCam.png     # Logo image
 ```
 
@@ -168,6 +171,11 @@ The following changes were made to adapt WansteadCam for WagtailCam:
 - nginx auth_request protection on all pages and streams
 - Session cookie with Secure, HttpOnly, SameSite flags
 - No-cache headers on protected pages to prevent cached content after logout
+- **File-backed sessions** - Sessions persist across server restarts
+- **Login rate limiting** - Max 10 failed attempts per 5 minutes per IP
+- **Bcrypt 12 rounds** - OWASP 2026 recommended work factor
+- **JPEG validation** - Timelapse captures verified before saving
+- **Error logging** - Silent failures logged at debug level
 
 ### 8. Mobile/Touch Improvements
 - `touch-action: manipulation` on PTZ buttons
@@ -205,7 +213,7 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo cp files/etc_systemd/*.service /etc/systemd/system/
 
 # Create web directory and copy files
-sudo mkdir -p /var/www/camviewer /var/www/certbot
+sudo mkdir -p /var/www/camviewer /var/www/certbot /var/www/camviewer/.sessions
 sudo cp -r files/var_www_camviewer/* /var/www/camviewer/
 sudo chmod +x /var/www/camviewer/*.py
 sudo chown -R gduthie:gduthie /var/www/camviewer
@@ -219,12 +227,14 @@ sudo systemctl daemon-reload
 sudo python3 -c "
 import bcrypt, json
 users = {
-    'admin': {'hash': bcrypt.hashpw(b'your-password', bcrypt.gensalt(rounds=10)).decode(), 'is_admin': True}
+    'admin': {'hash': bcrypt.hashpw(b'your-password', bcrypt.gensalt(rounds=12)).decode(), 'is_admin': True}
 }
 with open('/etc/nginx/.wcam-users.json', 'w') as f:
     json.dump(users, f, indent=2)
 "
 ```
+
+**Note:** Bcrypt uses 12 rounds (OWASP 2026 recommendation) for secure password hashing. Account creation via the web UI automatically uses this work factor.
 
 ### 3. Set up SSL certificate
 ```bash

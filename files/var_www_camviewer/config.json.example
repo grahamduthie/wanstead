@@ -1,0 +1,12 @@
+{
+  "USERS_FILE": "/etc/nginx/.wcam-users.json",
+  "SESSION_DIR": "/var/www/camviewer/.sessions",
+  "SESSION_RATE_LIMIT_FILE": "/var/www/camviewer/.rate_limit.json",
+  "AUTH_LOG_PATH": "/var/log/wcam-auth.log",
+  "AUDIT_LOG_PATH": "/var/log/wcam-login.log",
+  "DEVICE": "/dev/video0",
+  "PRESET_BIN": "/usr/local/bin/ptz-preset",
+  "PRESET_NAMES_FILE": "/var/www/camviewer/.preset_names.json",
+  "TIMELAPSE_DIR": "/mnt/nas/timelapse",
+  "CAPTURE_STATUS_FILE": "/var/www/camviewer/.capture_status.json"
+}
