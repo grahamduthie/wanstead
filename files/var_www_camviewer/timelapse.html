@@ -217,6 +217,13 @@
         }
         .playback-controls button:hover { background: #1a4a80; }
         .playback-controls button:disabled { opacity: 0.3; cursor: default; }
+        .playback-controls button#resetBtn {
+            font-size: 1.1rem;
+            color: #888;
+        }
+        .playback-controls button#resetBtn:hover {
+            color: #4ade80;
+        }
         .play-btn {
             background: transparent !important;
             border: 1px solid #4ade80 !important;
@@ -321,6 +328,7 @@
             </div>
             <button onclick="nextImage()" id="nextBtn" disabled>&#9654;</button>
             <button onclick="play()" id="playBtn" class="play-btn">&#9654; Play</button>
+            <button onclick="resetPlayback()" id="resetBtn" title="Restart from beginning">&#8634;</button>
             <div class="speed-control">
                 <span>Speed:</span>
                 <select id="speedSelect" onchange="setSpeed(this.value)">
@@ -567,6 +575,11 @@
                 playInterval = null;
             }
             document.getElementById('playBtn').textContent = '\u25B6 Play';
+        }
+        
+        function resetPlayback() {
+            stopPlay();
+            showImage(0);
         }
         
         function setSpeed(speed) {
