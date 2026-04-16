@@ -253,6 +253,94 @@ sudo systemctl enable --now ustreamer wcam-auth wcam-ws-relay nginx
 | ustreamer | 8080 | MJPEG stream source |
 | wcam-auth | 8086 | Auth, user management, PTZ API |
 | wcam-ws-relay | 8087 | WebSocket MJPEG relay |
+| capture_timelapse | cron | Captures frames to NAS every 5 min |
+
+---
+
+## Network Storage (NAS)
+
+The Pi mounts a share from a network NAS for storing timelapse captures and other data.
+
+| Setting | Value |
+|---------|-------|
+| NAS | nas-A9-C2-58 (172.16.10.107) |
+| Share | //172.16.10.107/media/WagtailCam |
+| Mount Point | /mnt/nas |
+| Access | Guest read/write |
+| Protocol | CIFS/SMB v1.0 |
+
+**Mount Configuration:**
+- Configured in `/etc/fstab` for automatic mounting at boot
+- Uses `_netdev` option to wait for network before mounting
+- SMB version 1.0 required for compatibility with older NAS
+
+**Commands:**
+```bash
+# Manually mount
+sudo mount -a
+
+# Check mount
+ls /mnt/nas
+
+# Unmount (if needed)
+sudo umount /mnt/nas
+```
+
+---
+
+## Timelapse Capture System
+
+The system automatically captures frames from Preset 1 position for timelapse viewing.
+
+### Configuration
+
+| Setting | Value |
+|---------|-------|
+| Capture interval | Every 5 minutes |
+| Storage location | /mnt/nas/timelapse/YYYY-MM-DD/ |
+| Preset used | Preset 1 |
+| Daylight hours | 30 min before sunrise to 30 min after sunset |
+| Location | Twyford, Berkshire, UK (51.48°N, 1.0°W) |
+| Image size | 1920x1080 JPEG |
+
+### Capture Script
+
+`/usr/local/bin/capture_timelapse.py` - Python script that:
+1. Calculates sunrise/sunset for current day using `astral` library
+2. Only captures during daylight hours
+3. Moves camera to Preset 1 (via home + preset recall)
+4. Waits for camera to settle
+5. Captures frame from ustreamer's `/snapshot` endpoint
+6. Saves to `/mnt/nas/timelapse/YYYY-MM-DD/HHMMSS.jpg`
+
+### Cron Job
+
+Runs every 5 minutes via root crontab:
+```
+*/5 * * * * /usr/local/bin/capture_timelapse.py >> /var/log/timelapse.log 2>&1
+```
+
+### Dependencies
+
+```bash
+pip3 install --break-system-packages astral pytz
+```
+
+### Commands
+
+```bash
+# Test capture manually
+/usr/local/bin/capture_timelapse.py
+
+# Check log
+cat /var/log/timelapse.log
+
+# View captured images
+ls -la /mnt/nas/timelapse/2026-04-16/
+
+# Stop capturing (remove cron)
+/usr/bin/crontab -r  # careful!
+```
 
 ---
 
