@@ -942,6 +942,73 @@ def api_ptz_state():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+PRESET_BIN = "/usr/local/bin/ptz-preset"
+
+
+@app.route("/api/preset/home", methods=["POST"])
+def api_preset_home():
+    """Move camera to home position using UVC extension unit."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [PRESET_BIN, "home"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"ok": False, "error": result.stderr}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/preset/save/<int:preset_num>", methods=["POST"])
+def api_preset_save(preset_num):
+    """Save current position as a preset (1-3)."""
+    import subprocess
+
+    if preset_num not in (1, 2, 3):
+        return jsonify({"ok": False, "error": "Preset must be 1, 2, or 3"}), 400
+    try:
+        result = subprocess.run(
+            [PRESET_BIN, f"save{preset_num}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"ok": False, "error": result.stderr}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/api/preset/recall/<int:preset_num>", methods=["POST"])
+def api_preset_recall(preset_num):
+    """Move camera to a saved preset (1-3)."""
+    import subprocess
+
+    if preset_num not in (1, 2, 3):
+        return jsonify({"ok": False, "error": "Preset must be 1, 2, or 3"}), 400
+    try:
+        result = subprocess.run(
+            [PRESET_BIN, f"preset{preset_num}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return jsonify({"ok": True})
+        else:
+            return jsonify({"ok": False, "error": result.stderr}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     auth_logger.info("Starting wcam-auth on 127.0.0.1:8086 (Waitress)")
     serve(app, host="127.0.0.1", port=8086, threads=4, connection_limit=100)

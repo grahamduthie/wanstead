@@ -43,15 +43,27 @@ The Logitech PTZ Pro 2 is detected as `/dev/video0` and `/dev/video1` via the UV
 | gain | 0-255 | Currently at max (255) for low light |
 | backlight_compensation | 0-1 | On (1) for window scenes |
 
-**Note:** PTZ Pro 2 has speed controls only (pan_speed, tilt_speed), not absolute position controls. This means:
-- Cannot return camera to a saved "home" position
-- Presets can only save/restore zoom and focus
-- Tilt range is physically limited (cannot tilt up as far as down)
+**Note:** PTZ Pro 2 has speed controls only (pan_speed, tilt_speed), not absolute position controls. However, the camera has built-in presets and home position accessible via UVC Extension Unit commands (see Camera Presets section below).
 
 **Low Light Considerations:** The PTZ Pro 2 is a consumer camera, not a true security camera. For window scenes at night:
 - Performance will be limited
 - Consider external IR illumination for better night vision
 - Current settings maximize gain for low light
+
+### Camera Presets
+
+The PTZ Pro 2 has built-in preset functionality accessible via UVC Extension Unit commands:
+
+| Preset | Save Command | Recall Command |
+|--------|--------------|----------------|
+| Preset 1 | Save current position | Go to Preset 1 |
+| Preset 2 | Save current position | Go to Preset 2 |
+| Preset 3 | Save current position | Go to Preset 3 |
+| Home | - | Return to home position |
+
+**Implementation:** Uses `/usr/local/bin/ptz-preset` binary which sends UVC Extension Unit commands (Unit ID 11, Selector 0x02) directly to the camera firmware. This provides reliable preset recall without drift.
+
+**Note:** Presets save the complete camera state including pan, tilt, zoom, and focus positions.
 
 ---
 
@@ -88,6 +100,8 @@ wanstead/
 ├── README.md                    # Original WansteadCam documentation
 ├── WAGTAILCAM.md               # This file
 ├── files/
+│   ├── usr_local_bin/
+│   │   └── ptz-preset.c       # C helper for camera preset commands (UVC XU)
 │   ├── etc_nginx/
 │   │   └── camviewer           # nginx site config (HTTPS + auth + no-cache)
 │   ├── etc_systemd/
@@ -95,9 +109,9 @@ wanstead/
 │   │   ├── wcam-auth.service   # Auth backend systemd service
 │   │   └── wcam-ws-relay.service # WebSocket relay systemd service
 │   └── var_www_camviewer/     # Web application
-│       ├── index.html          # Main camera viewer (single cam + PTZ)
+│       ├── index.html          # Main camera viewer (single cam + PTZ + presets)
 │       ├── login.html          # Login page
-│       ├── auth_server.py      # Flask auth backend + PTZ endpoint
+│       ├── auth_server.py      # Flask auth backend + PTZ + preset endpoints
 │       ├── ws_relay.py        # WebSocket MJPEG relay
 │       └── WagtailCam.png     # Logo image
 ```
@@ -163,6 +177,12 @@ sudo pip3 install --break-system-packages flask websockets waitress bcrypt
 
 ### 1. Deploy configuration files
 ```bash
+# Compile and install PTZ preset helper
+sudo mkdir -p /usr/local/bin
+gcc -o /usr/local/bin/ptz-preset files/usr_local_bin/ptz-preset.c
+sudo cp /usr/local/bin/ptz-preset /usr/local/bin/
+sudo chmod +x /usr/local/bin/ptz-preset
+
 # Copy nginx config
 sudo cp files/etc_nginx/camviewer /etc/nginx/sites-available/wagtailcam
 sudo ln -sf /etc/nginx/sites-available/wagtailcam /etc/nginx/sites-enabled/
@@ -258,6 +278,18 @@ Multiple parameters can be combined:
 GET /api/ptz/state             # Returns current zoom, focus, focus_auto values
 ```
 
+### Preset Control API
+
+```
+POST /api/preset/home          # Move camera to home position
+POST /api/preset/save/1       # Save current position as Preset 1
+POST /api/preset/save/2       # Save current position as Preset 2
+POST /api/preset/save/3       # Save current position as Preset 3
+POST /api/preset/recall/1     # Go to Preset 1
+POST /api/preset/recall/2     # Go to Preset 2
+POST /api/preset/recall/3     # Go to Preset 3
+```
+
 Used by browser to sync PTZ state every 5 seconds.
 
 ### Other API Endpoints
@@ -303,7 +335,7 @@ The PTZ Pro 2 is a consumer camera. For window scenes at night:
 
 When continuing this project:
 
-1. **SSH Access**: `ssh gduthie@wagtailcam.local` (passwordless SSH configured)
+1. **SSH Access**: `ssh gduthie@wagtailcam.gdx.org.uk` (external access via Tailscale or similar)
 
 2. **Service Management**:
    ```bash
@@ -322,6 +354,13 @@ When continuing this project:
    ```bash
    v4l2-ctl --list-devices          # Check camera detection
    v4l2-ctl -d /dev/video0 --list-ctrls   # List available controls
+   ```
+
+5. **PTZ Preset Testing**:
+   ```bash
+   /usr/local/bin/ptz-preset home      # Go to home position
+   /usr/local/bin/ptz-preset save1      # Save Preset 1
+   /usr/local/bin/ptz-preset preset1     # Go to Preset 1
    ```
 
 5. **SSL Certificate**:

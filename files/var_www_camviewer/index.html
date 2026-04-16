@@ -509,6 +509,41 @@
         .ptz-btn-col1 { grid-column: 1; grid-row: 2; }
         .ptz-btn-col3 { grid-column: 3; grid-row: 2; }
         .ptz-center { grid-column: 2; grid-row: 2; }
+        .ptz-presets {
+            display: flex;
+            gap: 0.4rem;
+            justify-content: center;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .preset-btn {
+            background: #16213e;
+            border: 1px solid #333;
+            color: #eee;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.72rem;
+            padding: 0.3rem 0.5rem;
+            min-height: 32px;
+            min-width: 44px;
+            transition: background 0.15s;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        .preset-btn:active { background: #4ade80; color: #1a1a2e; }
+        .preset-btn:focus { outline: 2px solid #4ade80; outline-offset: 1px; }
+        .preset-btn.save { border-color: #f59e0b; color: #f59e0b; }
+        .preset-btn.save:active { background: #f59e0b; color: #1a1a2e; }
+        .preset-btn.home { border-color: #3b82f6; color: #3b82f6; }
+        .preset-btn.home:active { background: #3b82f6; color: #fff; }
+        .preset-status {
+            font-size: 0.65rem;
+            color: #666;
+            text-align: center;
+            margin-top: 0.3rem;
+            min-height: 1em;
+        }
         /* Desktop: modal centered */
         @media (min-width: 601px) {
             .modal-overlay { align-items: center; }
@@ -588,6 +623,14 @@
                         <span class="ptz-value" id="focusValue">Auto</span>
                     </div>
                 </div>
+                <div class="ptz-presets">
+                    <button class="preset-btn home" id="btnHome" onclick="presetHome()">&#127968; Home</button>
+                    <button class="preset-btn" id="btnPreset1" onclick="presetRecall(1)">&#9312; Preset 1</button>
+                    <button class="preset-btn" id="btnPreset2" onclick="presetRecall(2)">&#9313; Preset 2</button>
+                    <button class="preset-btn" id="btnPreset3" onclick="presetRecall(3)">&#9314; Preset 3</button>
+                    <button class="preset-btn save" id="btnSavePreset" onclick="showSavePreset()">&#128190; Save</button>
+                </div>
+                <div class="preset-status" id="presetStatus"></div>
             </div>
         </div>
     </div>
@@ -815,6 +858,100 @@
         }
 
         setInterval(syncPtzState, 5000);
+
+        var presetSaveMode = null;
+
+        function showSavePreset() {
+            var btns = [
+                { num: 1, el: document.getElementById('btnPreset1') },
+                { num: 2, el: document.getElementById('btnPreset2') },
+                { num: 3, el: document.getElementById('btnPreset3') }
+            ];
+            if (presetSaveMode === null) {
+                presetSaveMode = true;
+                document.getElementById('btnSavePreset').textContent = 'Click 1, 2, or 3';
+                document.getElementById('presetStatus').textContent = 'Select preset to save...';
+                btns.forEach(function(b) {
+                    b.el.classList.add('save');
+                    b.el.onclick = function() { presetSave(b.num); };
+                });
+                setTimeout(function() {
+                    if (presetSaveMode === true) cancelSavePreset();
+                }, 5000);
+            } else {
+                cancelSavePreset();
+            }
+        }
+
+        function cancelSavePreset() {
+            presetSaveMode = null;
+            document.getElementById('btnSavePreset').textContent = '\uD83D\uDCBE Save';
+            document.getElementById('presetStatus').textContent = '';
+            document.getElementById('btnPreset1').onclick = function() { presetRecall(1); };
+            document.getElementById('btnPreset2').onclick = function() { presetRecall(2); };
+            document.getElementById('btnPreset3').onclick = function() { presetRecall(3); };
+            ['btnPreset1', 'btnPreset2', 'btnPreset3'].forEach(function(id) {
+                document.getElementById(id).classList.remove('save');
+            });
+        }
+
+        function presetSave(num) {
+            presetSaveMode = null;
+            document.getElementById('presetStatus').textContent = 'Saving preset ' + num + '...';
+            api('/api/preset/save/' + num, { method: 'POST' })
+                .then(function(data) {
+                    if (data.ok) {
+                        document.getElementById('presetStatus').textContent = 'Preset ' + num + ' saved!';
+                        setTimeout(function() {
+                            document.getElementById('presetStatus').textContent = '';
+                        }, 2000);
+                    } else {
+                        document.getElementById('presetStatus').textContent = 'Save failed: ' + (data.error || 'error');
+                    }
+                })
+                .catch(function() {
+                    document.getElementById('presetStatus').textContent = 'Save failed';
+                });
+            cancelSavePreset();
+        }
+
+        function presetRecall(num) {
+            document.getElementById('presetStatus').textContent = 'Going to preset ' + num + '...';
+            api('/api/preset/recall/' + num, { method: 'POST' })
+                .then(function(data) {
+                    if (data.ok) {
+                        document.getElementById('presetStatus').textContent = 'Preset ' + num + ' loaded';
+                        setTimeout(function() {
+                            document.getElementById('presetStatus').textContent = '';
+                            syncPtzState();
+                        }, 1500);
+                    } else {
+                        document.getElementById('presetStatus').textContent = 'Recall failed: ' + (data.error || 'error');
+                    }
+                })
+                .catch(function() {
+                    document.getElementById('presetStatus').textContent = 'Recall failed';
+                });
+        }
+
+        function presetHome() {
+            document.getElementById('presetStatus').textContent = 'Going home...';
+            api('/api/preset/home', { method: 'POST' })
+                .then(function(data) {
+                    if (data.ok) {
+                        document.getElementById('presetStatus').textContent = 'At home position';
+                        setTimeout(function() {
+                            document.getElementById('presetStatus').textContent = '';
+                            syncPtzState();
+                        }, 1500);
+                    } else {
+                        document.getElementById('presetStatus').textContent = 'Home failed: ' + (data.error || 'error');
+                    }
+                })
+                .catch(function() {
+                    document.getElementById('presetStatus').textContent = 'Home failed';
+                });
+        }
 
         // --- Stream ---
         (function() {
