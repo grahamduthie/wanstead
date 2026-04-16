@@ -344,6 +344,28 @@ ls -la /mnt/nas/timelapse/2026-04-16/
 
 ---
 
+## Timelapse Viewer
+
+Access the timelapse viewer at: **https://wagtailcam.gdx.org.uk/timelapse.html**
+
+### Features
+
+- Date picker with Yesterday/Today quick buttons
+- Frame-by-frame navigation with arrow keys or buttons
+- Playback at adjustable speed (1x, 3x, 5x, 10x)
+- Progress bar for quick seeking
+- Download all images for a date as a ZIP file
+
+### Timelapse API Endpoints
+
+```
+GET /api/timelapse/list?date=YYYY-MM-DD   # List images for a date
+GET /api/timelapse/image?path=...          # Serve a specific image
+GET /api/timelapse/download?date=YYYY-MM-DD # Download all images as ZIP
+```
+
+---
+
 ## API Reference
 
 ### PTZ Control API

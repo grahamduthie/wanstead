@@ -23,11 +23,16 @@ CAPTURE_INTERVAL = 5
 
 
 def get_daylight_window(date):
-    """Get capture window for a given date."""
+    """Get capture window for a given date (in local timezone)."""
+    import pytz
+
+    tz = pytz.timezone("Europe/London")
     city = LocationInfo("Twyford", "Berkshire", "Europe/London", CAMERA_LAT, CAMERA_LON)
     s = sun(city.observer, date=date)
-    start = s["sunrise"] - timedelta(minutes=BUFFER_MINUTES)
-    end = s["sunset"] + timedelta(minutes=BUFFER_MINUTES)
+    start = tz.normalize(
+        s["sunrise"].astimezone(tz) - timedelta(minutes=BUFFER_MINUTES)
+    )
+    end = tz.normalize(s["sunset"].astimezone(tz) + timedelta(minutes=BUFFER_MINUTES))
     return start, end
 
 

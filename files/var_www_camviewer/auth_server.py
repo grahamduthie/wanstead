@@ -1057,6 +1057,83 @@ def api_preset_name(preset_num):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+TIMELAPSE_DIR = "/mnt/nas/timelapse"
+
+
+@app.route("/api/timelapse/list", methods=["GET"])
+def api_timelapse_list():
+    """List all images for a given date."""
+    import os
+
+    date_str = request.args.get("date")
+    if not date_str:
+        return jsonify({"ok": False, "error": "Date required"}), 400
+
+    date_dir = os.path.join(TIMELAPSE_DIR, date_str)
+    if not os.path.isdir(date_dir):
+        return jsonify({"ok": True, "images": []})
+
+    images = []
+    for f in sorted(os.listdir(date_dir)):
+        if f.endswith(".jpg"):
+            images.append(f"/timelapse/{date_str}/{f}")
+    return jsonify({"ok": True, "images": images})
+
+
+@app.route("/api/timelapse/image", methods=["GET"])
+def api_timelapse_image():
+    """Serve a timelapse image."""
+    import os
+
+    path = request.args.get("path")
+    if not path:
+        return "Path required", 400
+
+    safe_path = os.path.normpath(path)
+    if ".." in safe_path or not safe_path.startswith("/timelapse/"):
+        return "Invalid path", 400
+
+    real_path = os.path.join("/mnt/nas", safe_path.lstrip("/"))
+    if not os.path.isfile(real_path):
+        return "Not found", 404
+
+    from flask import send_file
+
+    return send_file(real_path, mimetype="image/jpeg")
+
+
+@app.route("/api/timelapse/download", methods=["GET"])
+def api_timelapse_download():
+    """Download all images for a date as a zip file."""
+    import os
+    import io
+    import zipfile
+    from flask import make_response
+
+    date_str = request.args.get("date")
+    if not date_str:
+        return "Date required", 400
+
+    date_dir = os.path.join(TIMELAPSE_DIR, date_str)
+    if not os.path.isdir(date_dir):
+        return "No images for this date", 404
+
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(os.listdir(date_dir)):
+            if f.endswith(".jpg"):
+                file_path = os.path.join(date_dir, f)
+                zf.write(file_path, f)
+
+    memory_file.seek(0)
+    response = make_response(memory_file.getvalue())
+    response.headers["Content-Type"] = "application/zip"
+    response.headers["Content-Disposition"] = (
+        f"attachment; filename=timelapse_{date_str}.zip"
+    )
+    return response
+
+
 if __name__ == "__main__":
     auth_logger.info("Starting wcam-auth on 127.0.0.1:8086 (Waitress)")
     serve(app, host="127.0.0.1", port=8086, threads=4, connection_limit=100)

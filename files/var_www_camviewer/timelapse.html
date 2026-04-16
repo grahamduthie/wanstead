@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WagtailCam - Timelapse</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        header {
+            background: #16213e;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #0f3460;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .logo { max-width: 160px; height: auto; }
+        h1 { font-size: 1.1rem; color: #4ade80; }
+        .back-btn {
+            background: #0f3460;
+            border: 1px solid #333;
+            color: #eee;
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+        .back-btn:hover { background: #1a4a80; }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        .controls {
+            background: #16213e;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            align-items: center;
+            justify-content: center;
+        }
+        .date-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .date-group label { font-size: 0.85rem; color: #aaa; }
+        .date-group input {
+            padding: 0.5rem;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #0f3460;
+            color: #eee;
+            font-size: 0.9rem;
+        }
+        .btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid #4ade80;
+            border-radius: 6px;
+            background: transparent;
+            color: #4ade80;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #4ade80; color: #1a1a2e; }
+        .btn-secondary { border-color: #666; color: #aaa; }
+        .btn-secondary:hover { background: #555; color: #fff; }
+        .btn:disabled { opacity: 0.5; cursor: default; }
+        .viewer {
+            background: #16213e;
+            border-radius: 12px;
+            overflow: hidden;
+            text-align: center;
+        }
+        .viewer img {
+            width: 100%;
+            max-width: 1920px;
+            display: block;
+            background: #000;
+        }
+        .viewer-placeholder {
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .info-bar {
+            padding: 0.5rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: #888;
+            background: #0f3460;
+        }
+        .playback-controls {
+            padding: 0.75rem 1rem;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .playback-controls button {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: 1px solid #333;
+            background: #0f3460;
+            color: #eee;
+            font-size: 1.2rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .playback-controls button:hover { background: #1a4a80; }
+        .playback-controls button:disabled { opacity: 0.3; cursor: default; }
+        .progress-bar {
+            flex: 1;
+            min-width: 150px;
+            max-width: 400px;
+            height: 8px;
+            background: #0f3460;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #4ade80;
+            border-radius: 4px;
+            transition: width 0.1s;
+        }
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .speed-control select {
+            padding: 0.3rem;
+            border: 1px solid #333;
+            border-radius: 4px;
+            background: #0f3460;
+            color: #eee;
+            font-size: 0.8rem;
+        }
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+            color: #666;
+        }
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid #333;
+            border-top-color: #4ade80;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <img src="/WagtailCam.png" alt="WagtailCam" class="logo">
+            <h1>Timelapse</h1>
+        </div>
+        <a href="/" class="back-btn">&#8592; Back to Live</a>
+    </header>
+    <div class="container">
+        <div class="controls">
+            <div class="date-group">
+                <label>Date:</label>
+                <input type="date" id="dateInput">
+                <button class="btn" onclick="loadDate()">Load</button>
+            </div>
+            <button class="btn btn-secondary" onclick="loadYesterday()">Yesterday</button>
+            <button class="btn btn-secondary" onclick="loadToday()">Today</button>
+            <button class="btn btn-secondary" id="downloadBtn" disabled>Download</button>
+        </div>
+        <div class="viewer">
+            <div class="viewer-placeholder" id="placeholder">Select a date to view timelapse</div>
+            <img id="timelapseImg" style="display:none" alt="Timelapse">
+        </div>
+        <div class="info-bar" id="infoBar" style="display:none">
+            <span id="imageInfo">-</span>
+            <span id="dateInfo">-</span>
+        </div>
+        <div class="playback-controls" id="playbackControls" style="display:none">
+            <button onclick="prevImage()" id="prevBtn" disabled>&#9664;</button>
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-bar-fill" id="progressFill"></div>
+            </div>
+            <button onclick="nextImage()" id="nextBtn" disabled>&#9654;</button>
+            <div class="speed-control">
+                <span>Speed:</span>
+                <select id="speedSelect" onchange="setSpeed(this.value)">
+                    <option value="100">1x (fast)</option>
+                    <option value="300" selected>3x</option>
+                    <option value="500">5x</option>
+                    <option value="1000">10x</option>
+                </select>
+            </div>
+        </div>
+        <div id="playBtnContainer" class="playback-controls" style="display:none">
+            <button onclick="play()" id="playBtn" class="btn">&#9654; Play</button>
+        </div>
+    </div>
+    <script>
+        var images = [];
+        var currentIndex = 0;
+        var isPlaying = false;
+        var playInterval = null;
+        var playSpeed = 300;
+        var apiBase = window.location.protocol + '//' + window.location.host;
+        
+        function api(path, options) {
+            options = options || {};
+            options.credentials = 'include';
+            return fetch(apiBase + path, options)
+                .then(function(r) { return r.json(); })
+                .catch(function(err) { return { ok: false, error: err.message }; });
+        }
+        
+        function loadDate() {
+            var dateStr = document.getElementById('dateInput').value;
+            if (!dateStr) return;
+            loadTimelapse(dateStr);
+        }
+        
+        function loadYesterday() {
+            var d = new Date();
+            d.setDate(d.getDate() - 1);
+            document.getElementById('dateInput').value = d.toISOString().split('T')[0];
+            loadDate();
+        }
+        
+        function loadToday() {
+            var d = new Date();
+            document.getElementById('dateInput').value = d.toISOString().split('T')[0];
+            loadDate();
+        }
+        
+        function loadTimelapse(dateStr) {
+            showLoading();
+            api('/api/timelapse/list?date=' + dateStr)
+                .then(function(data) {
+                    if (data.ok && data.images) {
+                        images = data.images;
+                        if (images.length === 0) {
+                            showError('No images found for ' + dateStr);
+                        } else {
+                            currentIndex = 0;
+                            showImage(0);
+                            document.getElementById('playbackControls').style.display = 'flex';
+                            document.getElementById('playBtnContainer').style.display = 'block';
+                            document.getElementById('downloadBtn').disabled = false;
+                        }
+                    } else {
+                        showError(data.error || 'Failed to load images');
+                    }
+                })
+                .catch(function() {
+                    showError('Network error');
+                });
+        }
+        
+        function showLoading() {
+            document.getElementById('placeholder').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+            document.getElementById('placeholder').style.display = 'flex';
+            document.getElementById('timelapseImg').style.display = 'none';
+            document.getElementById('infoBar').style.display = 'none';
+            document.getElementById('playbackControls').style.display = 'none';
+            document.getElementById('playBtnContainer').style.display = 'none';
+            document.getElementById('downloadBtn').disabled = true;
+        }
+        
+        function showError(msg) {
+            document.getElementById('placeholder').textContent = msg;
+            document.getElementById('placeholder').style.display = 'flex';
+            document.getElementById('timelapseImg').style.display = 'none';
+            document.getElementById('infoBar').style.display = 'none';
+        }
+        
+        function showImage(index) {
+            if (index < 0 || index >= images.length) return;
+            currentIndex = index;
+            var img = document.getElementById('timelapseImg');
+            img.src = apiBase + '/api/timelapse/image?path=' + encodeURIComponent(images[index]);
+            img.style.display = 'block';
+            document.getElementById('placeholder').style.display = 'none';
+            
+            var time = images[index].split('/').pop().replace('.jpg', '').split('_')[1] || '';
+            var formattedTime = time.substring(0,2) + ':' + time.substring(2,4) + ':' + time.substring(4,6);
+            document.getElementById('imageInfo').textContent = (index + 1) + ' / ' + images.length + ' - ' + formattedTime;
+            document.getElementById('dateInfo').textContent = images.length + ' frames';
+            document.getElementById('infoBar').style.display = 'flex';
+            
+            var pct = ((index + 1) / images.length) * 100;
+            document.getElementById('progressFill').style.width = pct + '%';
+            
+            document.getElementById('prevBtn').disabled = index === 0;
+            document.getElementById('nextBtn').disabled = index === images.length - 1;
+        }
+        
+        function prevImage() {
+            if (currentIndex > 0) showImage(currentIndex - 1);
+        }
+        
+        function nextImage() {
+            if (currentIndex < images.length - 1) showImage(currentIndex + 1);
+        }
+        
+        function play() {
+            if (isPlaying) {
+                stopPlay();
+                return;
+            }
+            isPlaying = true;
+            document.getElementById('playBtn').textContent = '\u23F8 Pause';
+            playInterval = setInterval(function() {
+                if (currentIndex < images.length - 1) {
+                    showImage(currentIndex + 1);
+                } else {
+                    stopPlay();
+                }
+            }, playSpeed);
+        }
+        
+        function stopPlay() {
+            isPlaying = false;
+            if (playInterval) {
+                clearInterval(playInterval);
+                playInterval = null;
+            }
+            document.getElementById('playBtn').textContent = '\u25B6 Play';
+        }
+        
+        function setSpeed(speed) {
+            playSpeed = parseInt(speed);
+            if (isPlaying) {
+                clearInterval(playInterval);
+                playInterval = setInterval(function() {
+                    if (currentIndex < images.length - 1) {
+                        showImage(currentIndex + 1);
+                    } else {
+                        stopPlay();
+                    }
+                }, playSpeed);
+            }
+        }
+        
+        document.getElementById('progressBar').addEventListener('click', function(e) {
+            var rect = this.getBoundingClientRect();
+            var pct = (e.clientX - rect.left) / rect.width;
+            var index = Math.floor(pct * images.length);
+            showImage(index);
+        });
+        
+        document.getElementById('downloadBtn').addEventListener('click', function() {
+            var dateStr = document.getElementById('dateInput').value;
+            if (dateStr) {
+                window.location.href = apiBase + '/api/timelapse/download?date=' + dateStr;
+            }
+        });
+        
+        document.addEventListener('keydown', function(e) {
+            if (images.length === 0) return;
+            if (e.key === 'ArrowLeft') prevImage();
+            if (e.key === 'ArrowRight') nextImage();
+            if (e.key === ' ') { e.preventDefault(); play(); }
+        });
+        
+        // Init with today
+        var today = new Date();
+        document.getElementById('dateInput').value = today.toISOString().split('T')[0];
+        loadToday();
+    </script>
+</body>
+</html>
