@@ -52,16 +52,23 @@ The Logitech PTZ Pro 2 is detected as `/dev/video0` and `/dev/video1` via the UV
 
 ### Camera Presets
 
-The PTZ Pro 2 has built-in preset functionality accessible via UVC Extension Unit commands:
+The PTZ Pro 2 has built-in preset functionality accessible via UVC Extension Unit commands. The system uses a **reference-based approach** for maximum accuracy:
 
 | Preset | Save Command | Recall Command |
 |--------|--------------|----------------|
 | Preset 1 | Save current position | Go to Preset 1 |
 | Preset 2 | Save current position | Go to Preset 2 |
 | Preset 3 | Save current position | Go to Preset 3 |
-| Home | - | Return to home position |
+| Home | - | Return to home position (pan/tilt only) |
 
-**Implementation:** Uses `/usr/local/bin/ptz-preset` binary which sends UVC Extension Unit commands (Unit ID 11, Selector 0x02) directly to the camera firmware. This provides reliable preset recall without drift.
+**Implementation:** Uses `/usr/local/bin/ptz-preset` binary which sends UVC Extension Unit commands (Unit ID 11, Selector 0x02) directly to the camera firmware.
+
+**Workflow:**
+- **Configure**: Camera goes home (resets pan/tilt/zoom) → User manually positions camera → Tap preset to save
+- **Recall**: Camera goes home (resets pan/tilt/zoom) → Camera moves to saved preset position
+- **Home**: Camera returns to home position (pan/tilt only, zoom unchanged)
+
+**Preset Naming:** Right-click (or long-press on mobile) any preset button to assign a custom name. Names are stored in `/var/www/camviewer/.preset_names.json`.
 
 **Note:** Presets save the complete camera state including pan, tilt, zoom, and focus positions.
 
@@ -281,13 +288,15 @@ GET /api/ptz/state             # Returns current zoom, focus, focus_auto values
 ### Preset Control API
 
 ```
-POST /api/preset/home          # Move camera to home position
-POST /api/preset/save/1       # Save current position as Preset 1
-POST /api/preset/save/2       # Save current position as Preset 2
-POST /api/preset/save/3       # Save current position as Preset 3
-POST /api/preset/recall/1     # Go to Preset 1
-POST /api/preset/recall/2     # Go to Preset 2
-POST /api/preset/recall/3     # Go to Preset 3
+GET  /api/preset/names          # Get all preset names
+PUT  /api/preset/name/1         # Set name for Preset 1 {"name": "Garden View"}
+POST /api/preset/home           # Move camera to home position
+POST /api/preset/save/1        # Save current position as Preset 1
+POST /api/preset/save/2        # Save current position as Preset 2
+POST /api/preset/save/3        # Save current position as Preset 3
+POST /api/preset/recall/1      # Go to Preset 1
+POST /api/preset/recall/2      # Go to Preset 2
+POST /api/preset/recall/3      # Go to Preset 3
 ```
 
 Used by browser to sync PTZ state every 5 seconds.

@@ -683,9 +683,9 @@
                     <button class="preset-btn" id="btnPreset1" onclick="presetRecall(1)" oncontextmenu="event.preventDefault(); openNameModal(1);"><span class="preset-num">&#9312;</span><span class="preset-label" id="labelPreset1">Preset 1</span></button>
                     <button class="preset-btn" id="btnPreset2" onclick="presetRecall(2)" oncontextmenu="event.preventDefault(); openNameModal(2);"><span class="preset-num">&#9313;</span><span class="preset-label" id="labelPreset2">Preset 2</span></button>
                     <button class="preset-btn" id="btnPreset3" onclick="presetRecall(3)" oncontextmenu="event.preventDefault(); openNameModal(3);"><span class="preset-num">&#9314;</span><span class="preset-label" id="labelPreset3">Preset 3</span></button>
-                    <button class="preset-btn save" id="btnSavePreset" onclick="showSavePreset()">&#128190; Save</button>
+                    <button class="preset-btn save" id="btnSavePreset" onclick="showSavePreset()">&#9881;&#65039; Configure</button>
                 </div>
-                <div class="rename-hint">Right-click preset to rename</div>
+                <div class="rename-hint" id="renameHint">Right-click preset to rename</div>
                 <div class="preset-status" id="presetStatus"></div>
             </div>
         </div>
@@ -966,6 +966,8 @@
             if (e.key === 'Enter') savePresetName();
             if (e.key === 'Escape') closeNameModal();
         });
+
+        function syncPtzState() {
             api('/api/ptz/state')
                 .then(function(data) {
                     if (data.ok && data.state) {
@@ -990,41 +992,40 @@
         var presetSaveMode = null;
 
         function showSavePreset() {
-            var btns = [
-                { num: 1, el: document.getElementById('btnPreset1') },
-                { num: 2, el: document.getElementById('btnPreset2') },
-                { num: 3, el: document.getElementById('btnPreset3') }
-            ];
-            if (presetSaveMode === null) {
-                presetSaveMode = true;
-                document.getElementById('btnSavePreset').textContent = 'Click 1, 2, or 3';
-                document.getElementById('presetStatus').textContent = 'Select preset to save...';
-                btns.forEach(function(b) {
-                    b.el.classList.add('save');
-                    b.el.onclick = function() { presetSave(b.num); };
-                });
-                setTimeout(function() {
-                    if (presetSaveMode === true) cancelSavePreset();
-                }, 5000);
-            } else {
+            if (presetSaveMode === 'configuring') {
                 cancelSavePreset();
+                return;
             }
+            document.getElementById('presetStatus').textContent = 'Homing camera...';
+            api('/api/preset/home', { method: 'POST' })
+                .then(function() {
+                    presetSaveMode = 'configuring';
+                    document.getElementById('btnSavePreset').textContent = '\u2716 Cancel';
+                    document.getElementById('presetStatus').textContent = 'Move camera, then tap preset';
+                    document.getElementById('btnPreset1').onclick = function() { presetSave(1); };
+                    document.getElementById('btnPreset2').onclick = function() { presetSave(2); };
+                    document.getElementById('btnPreset3').onclick = function() { presetSave(3); };
+                    document.getElementById('labelPreset1').textContent = 'Save 1';
+                    document.getElementById('labelPreset2').textContent = 'Save 2';
+                    document.getElementById('labelPreset3').textContent = 'Save 3';
+                    document.getElementById('renameHint').style.display = 'none';
+                })
+                .catch(function() {
+                    document.getElementById('presetStatus').textContent = 'Home failed';
+                });
         }
 
         function cancelSavePreset() {
             presetSaveMode = null;
-            document.getElementById('btnSavePreset').textContent = '\uD83D\uDCBE Save';
+            document.getElementById('btnSavePreset').textContent = '\u2699\uFE0F Configure';
             document.getElementById('presetStatus').textContent = '';
             document.getElementById('btnPreset1').onclick = function() { presetRecall(1); };
             document.getElementById('btnPreset2').onclick = function() { presetRecall(2); };
             document.getElementById('btnPreset3').onclick = function() { presetRecall(3); };
-            ['btnPreset1', 'btnPreset2', 'btnPreset3'].forEach(function(id) {
-                document.getElementById(id).classList.remove('save');
-            });
+            loadPresetNames();
         }
 
         function presetSave(num) {
-            presetSaveMode = null;
             document.getElementById('presetStatus').textContent = 'Saving preset ' + num + '...';
             api('/api/preset/save/' + num, { method: 'POST' })
                 .then(function(data) {
@@ -1032,7 +1033,8 @@
                         document.getElementById('presetStatus').textContent = 'Preset ' + num + ' saved!';
                         setTimeout(function() {
                             document.getElementById('presetStatus').textContent = '';
-                        }, 2000);
+                            cancelSavePreset();
+                        }, 1500);
                     } else {
                         document.getElementById('presetStatus').textContent = 'Save failed: ' + (data.error || 'error');
                     }
@@ -1040,25 +1042,53 @@
                 .catch(function() {
                     document.getElementById('presetStatus').textContent = 'Save failed';
                 });
-            cancelSavePreset();
         }
 
         function presetRecall(num) {
-            document.getElementById('presetStatus').textContent = 'Going to preset ' + num + '...';
-            api('/api/preset/recall/' + num, { method: 'POST' })
-                .then(function(data) {
-                    if (data.ok) {
-                        document.getElementById('presetStatus').textContent = 'Preset ' + num + ' loaded';
-                        setTimeout(function() {
-                            document.getElementById('presetStatus').textContent = '';
-                            syncPtzState();
-                        }, 1500);
-                    } else {
-                        document.getElementById('presetStatus').textContent = 'Recall failed: ' + (data.error || 'error');
-                    }
+            document.getElementById('presetStatus').textContent = 'Going home...';
+            api('/api/preset/home', { method: 'POST' })
+                .then(function() {
+                    setTimeout(function() {
+                        api('/api/ptz?zoom=100')
+                            .then(function() {
+                                document.getElementById('presetStatus').textContent = 'Going to preset ' + num + '...';
+                                setTimeout(function() {
+                                    api('/api/preset/recall/' + num, { method: 'POST' })
+                                        .then(function(data) {
+                                            if (data.ok) {
+                                                document.getElementById('presetStatus').textContent = 'Preset ' + num + ' loaded';
+                                                setTimeout(function() {
+                                                    document.getElementById('presetStatus').textContent = '';
+                                                    syncPtzState();
+                                                }, 1500);
+                                            } else {
+                                                document.getElementById('presetStatus').textContent = 'Recall failed: ' + (data.error || 'error');
+                                            }
+                                        })
+                                        .catch(function() {
+                                            document.getElementById('presetStatus').textContent = 'Recall failed';
+                                        });
+                                }, 500);
+                            });
+                    }, 500);
                 })
                 .catch(function() {
-                    document.getElementById('presetStatus').textContent = 'Recall failed';
+                    document.getElementById('presetStatus').textContent = 'Home failed, trying preset anyway...';
+                    api('/api/preset/recall/' + num, { method: 'POST' })
+                        .then(function(data) {
+                            if (data.ok) {
+                                document.getElementById('presetStatus').textContent = 'Preset ' + num + ' loaded';
+                                setTimeout(function() {
+                                    document.getElementById('presetStatus').textContent = '';
+                                    syncPtzState();
+                                }, 1500);
+                            } else {
+                                document.getElementById('presetStatus').textContent = 'Recall failed: ' + (data.error || 'error');
+                            }
+                        })
+                        .catch(function() {
+                            document.getElementById('presetStatus').textContent = 'Recall failed';
+                        });
                 });
         }
 
@@ -1071,7 +1101,7 @@
                         setTimeout(function() {
                             document.getElementById('presetStatus').textContent = '';
                             syncPtzState();
-                        }, 1500);
+                        }, 1000);
                     } else {
                         document.getElementById('presetStatus').textContent = 'Home failed: ' + (data.error || 'error');
                     }
