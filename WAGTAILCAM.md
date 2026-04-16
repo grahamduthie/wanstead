@@ -328,6 +328,7 @@ Runs every 5 minutes via root crontab:
 
 ```bash
 pip3 install --break-system-packages astral pytz
+sudo pip3 install --break-system-packages astral pytz  # For cron (runs as root)
 ```
 
 ### Commands
@@ -369,18 +370,19 @@ Access the timelapse viewer at: **https://wagtailcam.gdx.org.uk/timelapse.html**
 
 ### Features
 
-- Date picker with Yesterday/Today quick buttons
+- Calendar view showing dates with available images (green dots)
+- Yesterday/Today quick buttons
+- "Other Date" button to show/hide calendar for selecting other dates
 - Frame-by-frame navigation with arrow keys or buttons
 - Playback at adjustable speed (1x, 3x, 5x, 10x)
 - Progress bar for quick seeking
-- Download all images for a date as a ZIP file
 
 ### Timelapse API Endpoints
 
 ```
+GET /api/timelapse/dates            # List dates with images
 GET /api/timelapse/list?date=YYYY-MM-DD   # List images for a date
-GET /api/timelapse/image?path=...          # Serve a specific image
-GET /api/timelapse/download?date=YYYY-MM-DD # Download all images as ZIP
+GET /api/timelapse/image?path=...  # Serve a specific image
 ```
 
 ---

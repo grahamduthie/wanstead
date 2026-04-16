@@ -54,22 +54,103 @@
             display: flex;
             flex-wrap: wrap;
             gap: 0.75rem;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
         }
-        .date-group {
+        .date-picker {
+            text-align: center;
+        }
+        .date-picker label {
+            display: block;
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 0.3rem;
+        }
+        .calendar {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 0.5rem;
+            display: inline-block;
+        }
+        .calendar-header {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
         }
-        .date-group label { font-size: 0.85rem; color: #aaa; }
-        .date-group input {
-            padding: 0.5rem;
-            border: 1px solid #333;
-            border-radius: 6px;
-            background: #0f3460;
-            color: #eee;
+        .calendar-header button {
+            background: transparent;
+            border: none;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 1.2rem;
+            padding: 0.25rem 0.5rem;
+        }
+        .calendar-header button:hover { color: #4ade80; }
+        .calendar-title {
             font-size: 0.9rem;
+            color: #eee;
+        }
+        .calendar-days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 2px;
+            text-align: center;
+        }
+        .calendar-day-name {
+            font-size: 0.65rem;
+            color: #666;
+            padding: 0.25rem;
+        }
+        .calendar-day {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-size: 0.8rem;
+            color: #888;
+            cursor: pointer;
+            position: relative;
+        }
+        .calendar-day.empty {
+            cursor: default;
+        }
+        .calendar-day.has-images {
+            color: #eee;
+            background: #1a4a80;
+        }
+        .calendar-day.has-images:hover {
+            background: #2a5a90;
+        }
+        .calendar-day.selected {
+            background: #4ade80 !important;
+            color: #1a1a2e !important;
+        }
+        .calendar-day.today {
+            border: 1px solid #4ade80;
+        }
+        .calendar-day .image-dot {
+            position: absolute;
+            bottom: 2px;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: #4ade80;
+        }
+        .quick-btns {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+        .calendar-picker {
+            display: none;
+            margin-top: 0.5rem;
+        }
+        .calendar-picker.visible {
+            display: block;
         }
         .btn {
             padding: 0.5rem 1rem;
@@ -122,13 +203,13 @@
             flex-wrap: wrap;
         }
         .playback-controls button {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
             border: 1px solid #333;
             background: #0f3460;
             color: #eee;
-            font-size: 1.2rem;
+            font-size: 0.9rem;
             cursor: pointer;
             display: flex;
             align-items: center;
@@ -136,6 +217,18 @@
         }
         .playback-controls button:hover { background: #1a4a80; }
         .playback-controls button:disabled { opacity: 0.3; cursor: default; }
+        .play-btn {
+            background: transparent !important;
+            border: 1px solid #4ade80 !important;
+            color: #4ade80 !important;
+            font-size: 0.85rem !important;
+            min-width: 80px !important;
+            width: auto !important;
+        }
+        .play-btn:hover {
+            background: #4ade80 !important;
+            color: #1a1a2e !important;
+        }
         .progress-bar {
             flex: 1;
             min-width: 150px;
@@ -195,14 +288,23 @@
     </header>
     <div class="container">
         <div class="controls">
-            <div class="date-group">
-                <label>Date:</label>
-                <input type="date" id="dateInput">
-                <button class="btn" onclick="loadDate()">Load</button>
+            <div class="quick-btns">
+                <button class="btn btn-secondary" onclick="loadYesterday()">Yesterday</button>
+                <button class="btn btn-secondary" onclick="loadToday()">Today</button>
+                <button class="btn btn-secondary" onclick="toggleCalendar()">Other Date</button>
             </div>
-            <button class="btn btn-secondary" onclick="loadYesterday()">Yesterday</button>
-            <button class="btn btn-secondary" onclick="loadToday()">Today</button>
-            <button class="btn btn-secondary" id="downloadBtn" disabled>Download</button>
+        </div>
+        <div class="calendar-picker" id="calendarPicker">
+            <div class="date-picker">
+                <div class="calendar">
+                    <div class="calendar-header">
+                        <button onclick="changeMonth(-1)">&#9664;</button>
+                        <span class="calendar-title" id="calendarTitle"></span>
+                        <button onclick="changeMonth(1)">&#9654;</button>
+                    </div>
+                    <div class="calendar-days" id="calendarDays"></div>
+                </div>
+            </div>
         </div>
         <div class="viewer">
             <div class="viewer-placeholder" id="placeholder">Select a date to view timelapse</div>
@@ -218,18 +320,16 @@
                 <div class="progress-bar-fill" id="progressFill"></div>
             </div>
             <button onclick="nextImage()" id="nextBtn" disabled>&#9654;</button>
+            <button onclick="play()" id="playBtn" class="play-btn">&#9654; Play</button>
             <div class="speed-control">
                 <span>Speed:</span>
                 <select id="speedSelect" onchange="setSpeed(this.value)">
-                    <option value="100">1x (fast)</option>
+                    <option value="100">1x</option>
                     <option value="300" selected>3x</option>
                     <option value="500">5x</option>
                     <option value="1000">10x</option>
                 </select>
             </div>
-        </div>
-        <div id="playBtnContainer" class="playback-controls" style="display:none">
-            <button onclick="play()" id="playBtn" class="btn">&#9654; Play</button>
         </div>
     </div>
     <script>
@@ -239,6 +339,13 @@
         var playInterval = null;
         var playSpeed = 300;
         var apiBase = window.location.protocol + '//' + window.location.host;
+        var availableDates = [];
+        var currentYear = new Date().getFullYear();
+        var currentMonth = new Date().getMonth();
+        var selectedDate = null;
+        
+        var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        var dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
         
         function api(path, options) {
             options = options || {};
@@ -248,23 +355,127 @@
                 .catch(function(err) { return { ok: false, error: err.message }; });
         }
         
-        function loadDate() {
-            var dateStr = document.getElementById('dateInput').value;
-            if (!dateStr) return;
+        function loadAvailableDates() {
+            api('/api/timelapse/dates')
+                .then(function(data) {
+                    if (data.ok && data.dates) {
+                        availableDates = data.dates;
+                        renderCalendar();
+                    }
+                });
+        }
+        
+        function renderCalendar() {
+            var title = monthNames[currentMonth] + ' ' + currentYear;
+            document.getElementById('calendarTitle').textContent = title;
+            
+            var daysContainer = document.getElementById('calendarDays');
+            daysContainer.innerHTML = '';
+            
+            dayNames.forEach(function(name) {
+                var dayEl = document.createElement('div');
+                dayEl.className = 'calendar-day-name';
+                dayEl.textContent = name;
+                daysContainer.appendChild(dayEl);
+            });
+            
+            var firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            var daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            var today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            for (var i = 0; i < firstDay; i++) {
+                var empty = document.createElement('div');
+                empty.className = 'calendar-day empty';
+                daysContainer.appendChild(empty);
+            }
+            
+            for (var day = 1; day <= daysInMonth; day++) {
+                var dayEl = document.createElement('div');
+                dayEl.className = 'calendar-day';
+                dayEl.textContent = day;
+                
+                var dateStr = currentYear + '-' + 
+                    String(currentMonth + 1).padStart(2, '0') + '-' + 
+                    String(day).padStart(2, '0');
+                
+                var hasImages = availableDates.some(function(d) { return d.date === dateStr; });
+                
+                if (hasImages) {
+                    dayEl.classList.add('has-images');
+                    var dot = document.createElement('span');
+                    dot.className = 'image-dot';
+                    dayEl.appendChild(dot);
+                }
+                
+                if (dateStr === selectedDate) {
+                    dayEl.classList.add('selected');
+                }
+                
+                var dayDate = new Date(currentYear, currentMonth, day);
+                if (dayDate.getTime() === today.getTime()) {
+                    dayEl.classList.add('today');
+                }
+                
+                if (dayDate <= today && hasImages) {
+                    dayEl.onclick = (function(ds) { return function() { selectDate(ds); }; })(dateStr);
+                } else {
+                    dayEl.style.opacity = '0.3';
+                    dayEl.style.cursor = 'default';
+                }
+                
+                daysContainer.appendChild(dayEl);
+            }
+        }
+        
+        function toggleCalendar() {
+            var picker = document.getElementById('calendarPicker');
+            picker.classList.toggle('visible');
+            if (picker.classList.contains('visible')) {
+                loadAvailableDates();
+                renderCalendar();
+            }
+        }
+        
+        function changeMonth(delta) {
+            currentMonth += delta;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentYear++;
+            } else if (currentMonth < 0) {
+                currentMonth = 11;
+                currentYear--;
+            }
+            renderCalendar();
+        }
+        
+        function selectDate(dateStr) {
+            selectedDate = dateStr;
+            renderCalendar();
             loadTimelapse(dateStr);
+        }
+        
+        function loadDate() {
+            if (selectedDate) {
+                loadTimelapse(selectedDate);
+            }
         }
         
         function loadYesterday() {
             var d = new Date();
             d.setDate(d.getDate() - 1);
-            document.getElementById('dateInput').value = d.toISOString().split('T')[0];
-            loadDate();
+            var dateStr = d.toISOString().split('T')[0];
+            currentYear = d.getFullYear();
+            currentMonth = d.getMonth();
+            selectDate(dateStr);
         }
         
         function loadToday() {
             var d = new Date();
-            document.getElementById('dateInput').value = d.toISOString().split('T')[0];
-            loadDate();
+            var dateStr = d.toISOString().split('T')[0];
+            currentYear = d.getFullYear();
+            currentMonth = d.getMonth();
+            selectDate(dateStr);
         }
         
         function loadTimelapse(dateStr) {
@@ -279,8 +490,6 @@
                             currentIndex = 0;
                             showImage(0);
                             document.getElementById('playbackControls').style.display = 'flex';
-                            document.getElementById('playBtnContainer').style.display = 'block';
-                            document.getElementById('downloadBtn').disabled = false;
                         }
                     } else {
                         showError(data.error || 'Failed to load images');
@@ -297,8 +506,6 @@
             document.getElementById('timelapseImg').style.display = 'none';
             document.getElementById('infoBar').style.display = 'none';
             document.getElementById('playbackControls').style.display = 'none';
-            document.getElementById('playBtnContainer').style.display = 'none';
-            document.getElementById('downloadBtn').disabled = true;
         }
         
         function showError(msg) {
@@ -383,13 +590,6 @@
             showImage(index);
         });
         
-        document.getElementById('downloadBtn').addEventListener('click', function() {
-            var dateStr = document.getElementById('dateInput').value;
-            if (dateStr) {
-                window.location.href = apiBase + '/api/timelapse/download?date=' + dateStr;
-            }
-        });
-        
         document.addEventListener('keydown', function(e) {
             if (images.length === 0) return;
             if (e.key === 'ArrowLeft') prevImage();
@@ -397,9 +597,8 @@
             if (e.key === ' ') { e.preventDefault(); play(); }
         });
         
-        // Init with today
-        var today = new Date();
-        document.getElementById('dateInput').value = today.toISOString().split('T')[0];
+        // Init - load available dates then show today
+        loadAvailableDates();
         loadToday();
     </script>
 </body>

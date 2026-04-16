@@ -1061,6 +1061,23 @@ TIMELAPSE_DIR = "/mnt/nas/timelapse"
 CAPTURE_STATUS_FILE = "/var/www/camviewer/.capture_status.json"
 
 
+@app.route("/api/timelapse/dates", methods=["GET"])
+def api_timelapse_dates():
+    """Get list of dates that have timelapse images."""
+    import os
+    import glob
+
+    dates = []
+    if os.path.isdir(TIMELAPSE_DIR):
+        for d in sorted(os.listdir(TIMELAPSE_DIR), reverse=True):
+            date_path = os.path.join(TIMELAPSE_DIR, d)
+            if os.path.isdir(date_path):
+                images = [f for f in os.listdir(date_path) if f.endswith(".jpg")]
+                if images:
+                    dates.append({"date": d, "count": len(images)})
+    return jsonify({"ok": True, "dates": dates})
+
+
 @app.route("/api/capture/status", methods=["GET"])
 def api_capture_status():
     """Get current capture status for browser notifications."""
