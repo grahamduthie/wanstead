@@ -965,46 +965,50 @@ def api_preset_home():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route("/api/preset/save/<int:preset_num>", methods=["POST"])
-def api_preset_save(preset_num):
-    """Save current position as a preset (1-3)."""
-    import subprocess
+PRESET_NAMES_FILE = "/var/www/camviewer/.preset_names.json"
+
+
+def load_preset_names():
+    """Load preset names from JSON file."""
+    import json
+
+    try:
+        with open(PRESET_NAMES_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"1": "", "2": "", "3": ""}
+
+
+def save_preset_names(names):
+    """Save preset names to JSON file."""
+    import json
+
+    with open(PRESET_NAMES_FILE, "w") as f:
+        json.dump(names, f)
+
+
+@app.route("/api/preset/names", methods=["GET"])
+def api_preset_names():
+    """Get all preset names."""
+    names = load_preset_names()
+    return jsonify({"ok": True, "names": names})
+
+
+@app.route("/api/preset/name/<int:preset_num>", methods=["PUT"])
+def api_preset_name(preset_num):
+    """Set the name for a preset."""
+    import json
 
     if preset_num not in (1, 2, 3):
         return jsonify({"ok": False, "error": "Preset must be 1, 2, or 3"}), 400
+
     try:
-        result = subprocess.run(
-            [PRESET_BIN, f"save{preset_num}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return jsonify({"ok": True})
-        else:
-            return jsonify({"ok": False, "error": result.stderr}), 500
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/api/preset/recall/<int:preset_num>", methods=["POST"])
-def api_preset_recall(preset_num):
-    """Move camera to a saved preset (1-3)."""
-    import subprocess
-
-    if preset_num not in (1, 2, 3):
-        return jsonify({"ok": False, "error": "Preset must be 1, 2, or 3"}), 400
-    try:
-        result = subprocess.run(
-            [PRESET_BIN, f"preset{preset_num}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return jsonify({"ok": True})
-        else:
-            return jsonify({"ok": False, "error": result.stderr}), 500
+        data = request.get_json()
+        name = data.get("name", "")[:50]  # Max 50 chars
+        names = load_preset_names()
+        names[str(preset_num)] = name
+        save_preset_names(names)
+        return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 

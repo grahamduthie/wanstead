@@ -544,6 +544,61 @@
             margin-top: 0.3rem;
             min-height: 1em;
         }
+        .rename-hint {
+            font-size: 0.6rem;
+            color: #888;
+            text-align: center;
+            margin-top: 0.2rem;
+        }
+        .preset-btn .preset-label {
+            display: block;
+            font-size: 0.65rem;
+            font-weight: normal;
+            margin-top: 0.1rem;
+        }
+        .preset-btn .preset-num {
+            font-size: 0.85rem;
+        }
+        /* Preset naming modal */
+        #nameModal .modal {
+            max-width: 320px;
+        }
+        #nameModal input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #333;
+            border-radius: 6px;
+            background: #0f3460;
+            color: #eee;
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        #nameModal input:focus {
+            outline: 2px solid #4ade80;
+            outline-offset: 1px;
+        }
+        .name-modal-buttons {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+        .name-modal-buttons button {
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            min-height: 44px;
+        }
+        .name-modal-buttons .cancel-btn {
+            background: transparent;
+            border: 1px solid #555;
+            color: #aaa;
+        }
+        .name-modal-buttons .save-btn {
+            background: #4ade80;
+            border: none;
+            color: #1a1a2e;
+        }
         /* Desktop: modal centered */
         @media (min-width: 601px) {
             .modal-overlay { align-items: center; }
@@ -625,11 +680,12 @@
                 </div>
                 <div class="ptz-presets">
                     <button class="preset-btn home" id="btnHome" onclick="presetHome()">&#127968; Home</button>
-                    <button class="preset-btn" id="btnPreset1" onclick="presetRecall(1)">&#9312; Preset 1</button>
-                    <button class="preset-btn" id="btnPreset2" onclick="presetRecall(2)">&#9313; Preset 2</button>
-                    <button class="preset-btn" id="btnPreset3" onclick="presetRecall(3)">&#9314; Preset 3</button>
+                    <button class="preset-btn" id="btnPreset1" onclick="presetRecall(1)" oncontextmenu="event.preventDefault(); openNameModal(1);"><span class="preset-num">&#9312;</span><span class="preset-label" id="labelPreset1">Preset 1</span></button>
+                    <button class="preset-btn" id="btnPreset2" onclick="presetRecall(2)" oncontextmenu="event.preventDefault(); openNameModal(2);"><span class="preset-num">&#9313;</span><span class="preset-label" id="labelPreset2">Preset 2</span></button>
+                    <button class="preset-btn" id="btnPreset3" onclick="presetRecall(3)" oncontextmenu="event.preventDefault(); openNameModal(3);"><span class="preset-num">&#9314;</span><span class="preset-label" id="labelPreset3">Preset 3</span></button>
                     <button class="preset-btn save" id="btnSavePreset" onclick="showSavePreset()">&#128190; Save</button>
                 </div>
+                <div class="rename-hint">Right-click preset to rename</div>
                 <div class="preset-status" id="presetStatus"></div>
             </div>
         </div>
@@ -723,11 +779,30 @@
         </div>
     </div>
 
+    <!-- Preset Naming Modal -->
+    <div class="modal-overlay" id="nameModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Rename Preset <span id="namePresetNum"></span></h2>
+                <button class="modal-close" onclick="closeNameModal()">&times;</button>
+            </div>
+            <div class="edit-form">
+                <input type="text" id="nameInput" placeholder="Enter preset name..." maxlength="50" autocomplete="off">
+                <div class="name-modal-buttons">
+                    <button class="cancel-btn" onclick="closeNameModal()">Cancel</button>
+                    <button class="save-btn" onclick="savePresetName()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // --- State ---
         var currentAdminUser = null;
         var editingUser = null;
         var logPage = 1;
+        var presetNames = {1: '', 2: '', 3: ''};
+        var namingPresetNum = null;
 
         // --- Shared helpers ---
 
@@ -834,10 +909,63 @@
         }
 
         function loadSavedPreset() {
+            loadPresetNames();
             syncPtzState();
         }
 
-        function syncPtzState() {
+        function loadPresetNames() {
+            api('/api/preset/names')
+                .then(function(data) {
+                    if (data.ok && data.names) {
+                        presetNames = data.names;
+                        updatePresetLabels();
+                    }
+                })
+                .catch(function() {});
+        }
+
+        function updatePresetLabels() {
+            for (var i = 1; i <= 3; i++) {
+                var name = presetNames[i] || 'Preset ' + i;
+                var el = document.getElementById('labelPreset' + i);
+                if (el) el.textContent = name;
+            }
+        }
+
+        function openNameModal(num) {
+            namingPresetNum = num;
+            document.getElementById('namePresetNum').textContent = num;
+            document.getElementById('nameInput').value = presetNames[num] || '';
+            document.getElementById('nameModal').classList.add('active');
+            setTimeout(function() { document.getElementById('nameInput').focus(); }, 100);
+        }
+
+        function closeNameModal() {
+            document.getElementById('nameModal').classList.remove('active');
+            namingPresetNum = null;
+        }
+
+        function savePresetName() {
+            var name = document.getElementById('nameInput').value.trim();
+            api('/api/preset/name/' + namingPresetNum, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            })
+            .then(function(data) {
+                if (data.ok) {
+                    presetNames[namingPresetNum] = name;
+                    updatePresetLabels();
+                    closeNameModal();
+                }
+            })
+            .catch(function() {});
+        }
+
+        document.getElementById('nameInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') savePresetName();
+            if (e.key === 'Escape') closeNameModal();
+        });
             api('/api/ptz/state')
                 .then(function(data) {
                     if (data.ok && data.state) {
@@ -1310,6 +1438,9 @@
         });
         document.getElementById('editModal').addEventListener('click', function(e) {
             if (e.target === this) closeEditModal();
+        });
+        document.getElementById('nameModal').addEventListener('click', function(e) {
+            if (e.target === this) closeNameModal();
         });
 
         // --- Init ---
