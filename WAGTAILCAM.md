@@ -383,9 +383,23 @@ Access the timelapse viewer at: **https://wagtailcam.gdx.org.uk/timelapse.html**
 - Calendar view showing dates with available images (green dots)
 - Yesterday/Today quick buttons
 - "Other Date" button to show/hide calendar for selecting other dates
+- **On-demand download**: Preview image shown first, click "Download All" to preload all images
+- Progress indicator during download
 - Frame-by-frame navigation with arrow keys or buttons
 - Playback at adjustable speed (1x, 3x, 5x, 10x)
 - Progress bar for quick seeking
+- Reset button to restart from beginning
+
+### On-Demand Image Preloading
+
+To improve performance on slow/unreliable connections:
+1. Selecting a date shows a random preview image
+2. "Download All (N)" button initiates background download of all images
+3. Progress bar shows download status
+4. Once complete (~50MB for a full day), playback is instant
+5. Images are cached in browser memory for smooth navigation
+
+**Bandwidth usage**: ~50MB per day of timelapse (168 images × ~300KB each)
 
 ### Timelapse API Endpoints
 

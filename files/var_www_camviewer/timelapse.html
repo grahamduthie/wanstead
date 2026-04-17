@@ -283,6 +283,85 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Download button overlay */
+        .download-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 10;
+        }
+        .download-overlay.hidden {
+            display: none;
+        }
+        .download-btn {
+            background: #0f3460;
+            border: 2px solid #4ade80;
+            color: #4ade80;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .download-btn:hover {
+            background: #4ade80;
+            color: #1a1a2e;
+        }
+        
+        /* Progress overlay */
+        .progress-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 11;
+            opacity: 1;
+            transition: opacity 0.3s;
+        }
+        .progress-overlay.hidden {
+            display: none;
+        }
+        .progress-overlay.fade-out {
+            opacity: 0;
+        }
+        .progress-text {
+            color: #eee;
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .progress-bar-overlay {
+            width: 80%;
+            max-width: 400px;
+            height: 12px;
+            background: #0f3460;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .progress-bar-overlay-fill {
+            height: 100%;
+            background: #4ade80;
+            border-radius: 6px;
+            transition: width 0.2s;
+        }
+        .viewer {
+            position: relative;
+        }
     </style>
 </head>
 <body>
@@ -291,7 +370,7 @@
             <img src="/WagtailCam.png" alt="WagtailCam" class="logo">
             <h1>Timelapse</h1>
         </div>
-        <a href="/" class="back-btn">&#8592; Back to Live</a>
+        <a href="/index.html" class="back-btn">&#8592; Back to Live</a>
     </header>
     <div class="container">
         <div class="controls">
@@ -316,6 +395,18 @@
         <div class="viewer">
             <div class="viewer-placeholder" id="placeholder">Select a date to view timelapse</div>
             <img id="timelapseImg" style="display:none" alt="Timelapse">
+            <div class="download-overlay" id="downloadOverlay">
+                <button class="download-btn" id="downloadBtn" onclick="downloadAllImages()">
+                    <span>&#8595;</span>
+                    <span id="downloadBtnText">Download All (0)</span>
+                </button>
+            </div>
+            <div class="progress-overlay hidden" id="progressOverlay">
+                <div class="progress-text" id="progressText">Downloading... 0/0</div>
+                <div class="progress-bar-overlay">
+                    <div class="progress-bar-overlay-fill" id="progressBarOverlayFill"></div>
+                </div>
+            </div>
         </div>
         <div class="info-bar" id="infoBar" style="display:none">
             <span id="imageInfo">-</span>
@@ -351,6 +442,13 @@
         var currentYear = new Date().getFullYear();
         var currentMonth = new Date().getMonth();
         var selectedDate = null;
+        
+        /* Image cache for preloaded images */
+        var imageCache = {};
+        var isAllDownloaded = false;
+        var downloadInProgress = false;
+        var downloadedCount = 0;
+        var totalImages = 0;
         
         var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         var dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -487,17 +585,51 @@
         }
         
         function loadTimelapse(dateStr) {
+            /* Reset state for new date */
+            imageCache = {};
+            isAllDownloaded = false;
+            downloadedCount = 0;
+            currentIndex = 0;
+            isPlaying = false;
+            if (playInterval) {
+                clearInterval(playInterval);
+                playInterval = null;
+            }
+            
             showLoading();
             api('/api/timelapse/list?date=' + dateStr)
                 .then(function(data) {
                     if (data.ok && data.images) {
                         images = data.images;
+                        totalImages = images.length;
                         if (images.length === 0) {
                             showError('No images found for ' + dateStr);
                         } else {
-                            currentIndex = 0;
-                            showImage(0);
+                            /* Show preview with download button */
+                            document.getElementById('placeholder').style.display = 'none';
+                            document.getElementById('timelapseImg').style.display = 'block';
+                            document.getElementById('infoBar').style.display = 'flex';
+                            document.getElementById('downloadOverlay').classList.remove('hidden');
+                            document.getElementById('downloadBtnText').textContent = 'Download All (' + images.length + ')';
+                            document.getElementById('progressOverlay').classList.add('hidden');
+                            
+                            /* Load random preview image */
+                            var previewIndex = Math.floor(Math.random() * images.length);
+                            var img = document.getElementById('timelapseImg');
+                            img.src = apiBase + '/api/timelapse/image?path=' + encodeURIComponent(images[previewIndex]);
+                            
+                            /* Show info bar */
+                            document.getElementById('imageInfo').textContent = 'Preview';
+                            document.getElementById('dateInfo').textContent = images.length + ' frames - click to download';
+                            document.getElementById('progressFill').style.width = '0%';
+                            
+                            /* Disable playback controls until downloaded */
                             document.getElementById('playbackControls').style.display = 'flex';
+                            document.getElementById('playBtn').disabled = true;
+                            document.getElementById('playBtn').textContent = '\u25B6 Download First';
+                            document.getElementById('prevBtn').disabled = true;
+                            document.getElementById('nextBtn').disabled = true;
+                            document.getElementById('resetBtn').disabled = true;
                         }
                     } else {
                         showError(data.error || 'Failed to load images');
@@ -523,11 +655,95 @@
             document.getElementById('infoBar').style.display = 'none';
         }
         
+        function downloadAllImages() {
+            if (downloadInProgress || isAllDownloaded) return;
+            
+            downloadInProgress = true;
+            downloadedCount = 0;
+            document.getElementById('downloadOverlay').classList.add('hidden');
+            document.getElementById('progressOverlay').classList.remove('hidden');
+            updateProgress();
+            
+            /* Start downloading with concurrency */
+            var CONCURRENCY = 3;
+            var queue = [];
+            for (var i = 0; i < images.length; i++) {
+                queue.push(i);
+            }
+            
+            function downloadNext() {
+                if (queue.length === 0) return;
+                
+                var batch = queue.splice(0, CONCURRENCY);
+                var promises = batch.map(function(index) {
+                    return new Promise(function(resolve) {
+                        if (imageCache[index]) {
+                            downloadedCount++;
+                            updateProgress();
+                            resolve();
+                            return;
+                        }
+                        var img = new Image();
+                        img.onload = function() {
+                            imageCache[index] = img.src;
+                            downloadedCount++;
+                            updateProgress();
+                            resolve();
+                        };
+                        img.onerror = function() {
+                            /* Use a placeholder on error */
+                            downloadedCount++;
+                            updateProgress();
+                            resolve();
+                        };
+                        img.src = apiBase + '/api/timelapse/image?path=' + encodeURIComponent(images[index]);
+                    });
+                });
+                
+                Promise.all(promises).then(function() {
+                    if (queue.length > 0) {
+                        downloadNext();
+                    } else {
+                        /* All done */
+                        downloadInProgress = false;
+                        isAllDownloaded = true;
+                        setTimeout(function() {
+                            document.getElementById('progressOverlay').classList.add('fade-out');
+                            setTimeout(function() {
+                                document.getElementById('progressOverlay').classList.add('hidden');
+                                document.getElementById('progressOverlay').classList.remove('fade-out');
+                                /* Enable playback */
+                                document.getElementById('playBtn').disabled = false;
+                                document.getElementById('playBtn').textContent = '\u25B6 Play';
+                                document.getElementById('resetBtn').disabled = false;
+                                updateNavButtons();
+                            }, 300);
+                        }, 500);
+                    }
+                });
+            }
+            
+            downloadNext();
+        }
+        
+        function updateProgress() {
+            var pct = totalImages > 0 ? Math.round((downloadedCount / totalImages) * 100) : 0;
+            document.getElementById('progressText').textContent = 'Downloading... ' + downloadedCount + '/' + totalImages + ' (' + pct + '%)';
+            document.getElementById('progressBarOverlayFill').style.width = pct + '%';
+        }
+        
         function showImage(index) {
             if (index < 0 || index >= images.length) return;
             currentIndex = index;
             var img = document.getElementById('timelapseImg');
-            img.src = apiBase + '/api/timelapse/image?path=' + encodeURIComponent(images[index]);
+            
+            /* Use cached image if available */
+            if (imageCache[index]) {
+                img.src = imageCache[index];
+            } else {
+                img.src = apiBase + '/api/timelapse/image?path=' + encodeURIComponent(images[index]);
+            }
+            
             img.style.display = 'block';
             document.getElementById('placeholder').style.display = 'none';
             
@@ -540,19 +756,24 @@
             var pct = ((index + 1) / images.length) * 100;
             document.getElementById('progressFill').style.width = pct + '%';
             
-            document.getElementById('prevBtn').disabled = index === 0;
-            document.getElementById('nextBtn').disabled = index === images.length - 1;
+            updateNavButtons();
+        }
+        
+        function updateNavButtons() {
+            document.getElementById('prevBtn').disabled = !isAllDownloaded || currentIndex === 0;
+            document.getElementById('nextBtn').disabled = !isAllDownloaded || currentIndex === images.length - 1;
         }
         
         function prevImage() {
-            if (currentIndex > 0) showImage(currentIndex - 1);
+            if (isAllDownloaded && currentIndex > 0) showImage(currentIndex - 1);
         }
         
         function nextImage() {
-            if (currentIndex < images.length - 1) showImage(currentIndex + 1);
+            if (isAllDownloaded && currentIndex < images.length - 1) showImage(currentIndex + 1);
         }
         
         function play() {
+            if (!isAllDownloaded) return;
             if (isPlaying) {
                 stopPlay();
                 return;

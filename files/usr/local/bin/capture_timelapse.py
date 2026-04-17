@@ -128,7 +128,7 @@ def go_to_preset1():
     if focus is not None:
         print(f"Applying saved focus: {focus}")
         set_camera_focus(focus)
-        time.sleep(0.5)
+        time.sleep(2.0)
 
     return True
 
