@@ -1375,6 +1375,63 @@ def api_timelapse_download():
     return response
 
 
+@app.route("/api/timelapse/stream", methods=["GET"])
+@require_login
+def api_timelapse_stream():
+    """Stream timelapse images as MJPEG multipart stream."""
+    import os
+    import time
+
+    date_str = request.args.get("date")
+    if not date_str:
+        return "Date required", 400
+
+    date_dir = os.path.join(TIMELAPSE_DIR, date_str)
+    if not os.path.isdir(date_dir):
+        return "No images for this date", 404
+
+    try:
+        speed = int(request.args.get("speed", "300"))
+    except ValueError:
+        speed = 300
+    speed = max(50, min(5000, speed))
+
+    image_files = sorted([f for f in os.listdir(date_dir) if f.endswith(".jpg")])
+
+    if not image_files:
+        return "No images for this date", 404
+
+    BOUNDARY = "boundarydonotcross"
+
+    def generate():
+        for img_file in image_files:
+            file_path = os.path.join(date_dir, img_file)
+            try:
+                with open(file_path, "rb") as f:
+                    jpeg_data = f.read()
+            except OSError:
+                continue
+
+            if len(jpeg_data) < 1000 or not jpeg_data.startswith(b"\xff\xd8"):
+                continue
+
+            yield f"--{BOUNDARY}\r\n".encode()
+            yield b"Content-Type: image/jpeg\r\n"
+            yield f"Content-Length: {len(jpeg_data)}\r\n".encode()
+            yield b"\r\n"
+            yield jpeg_data
+            yield b"\r\n"
+
+            time.sleep(speed / 1000.0)
+
+    from flask import Response
+
+    response = Response(
+        generate(), mimetype=f"multipart/x-mixed-replace; boundary={BOUNDARY}"
+    )
+    return response
+
+
 if __name__ == "__main__":
     auth_logger.info("Starting wcam-auth on 127.0.0.1:8086 (Waitress)")
     serve(app, host="127.0.0.1", port=8086, threads=4, connection_limit=100)

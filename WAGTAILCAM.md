@@ -1,5 +1,57 @@
 # WagtailCam — Raspberry Pi Security Camera Project
 
+---
+
+## Deployment Guide (IMPORTANT - READ THIS FIRST)
+
+### Code Location
+- **Mac source directory**: `/Users/gduthie/Programming/Wagtailcam/wanstead/`
+- **Pi files**: `/var/www/camviewer/` (web files), `/usr/local/bin/` (scripts)
+
+### Typical Workflow
+1. Edit files on Mac in the source directory
+2. Test locally if possible
+3. Deploy to Pi using scp and ssh
+
+### Deploy Commands
+
+**Single file:**
+```bash
+# From Mac:
+scp files/var_www_camviewer/auth_server.py gduthie@wagtailcam.gdx.org.uk:/tmp/
+scp files/var_www_camviewer/timelapse.html gduthie@wagtailcam.gdx.org.uk:/tmp/
+scp files/usr/local/bin/capture_timelapse.py gduthie@wagtailcam.gdx.org.uk:/tmp/
+
+# SSH to Pi and copy:
+ssh gduthie@wagtailcam.gdx.org.uk
+sudo cp /tmp/auth_server.py /var/www/camviewer/
+sudo cp /tmp/timelapse.html /var/www/camviewer/
+sudo cp /tmp/capture_timelapse.py /usr/local/bin/
+sudo systemctl restart wcam-auth
+```
+
+**After deploying, restart service:**
+```bash
+ssh gduthie@wagtailcam.gdx.org.uk
+sudo systemctl restart wcam-auth
+sudo systemctl restart wcam-ws-relay
+```
+
+### Testing Endpoints (from Pi)
+```bash
+# Test auth login
+TOKEN=$(curl -s -c /tmp/c.txt -X POST http://localhost:8086/api/login -H "Content-Type: application/json" -d '{"username":"gduthie","password":"cheshunt"}' | grep -o '"ok":true')
+echo "Login: $TOKEN"
+
+# Test timelapse dates
+curl -s -b /tmp/c.txt http://localhost:8086/api/timelapse/dates
+
+# Test MJPEG stream
+curl -s -b /tmp/c.txt "http://localhost:8086/api/timelapse/stream?date=2026-04-16&speed=300" | head -5
+```
+
+---
+
 ## Overview
 
 WagtailCam is a single-camera security camera system running on a Raspberry Pi. It provides live MJPEG streaming via a web interface with PTZ (Pan-Tilt-Zoom) controls for the Logitech PTZ Pro 2 camera.
@@ -20,6 +72,13 @@ This project is a modified derivative of the [WansteadCam project](https://githu
 **SSL Certificate:** Let's Encrypt (auto-renews via certbot.timer, runs ~1:10 AM daily)
 
 **Git Repository:** Initial commit made. Code on Mac at `/Users/gduthie/Programming/Wagtailcam/wanstead/`
+
+### Pi Access
+
+- **Hostname**: wagtailcam.gdx.org.uk
+- **SSH**: `ssh gduthie@wagtailcam.gdx.org.uk`
+- **User**: gduthie
+- **Key**: Uses SSH keys (no password auth)
 
 ---
 
@@ -401,12 +460,85 @@ To improve performance on slow/unreliable connections:
 
 **Bandwidth usage**: ~50MB per day of timelapse (168 images × ~300KB each)
 
+### MJPEG Streaming (IN PROGRESS)
+
+**Goal**: Add a stream mode that plays timelapse as a video stream instead of downloading individual images.
+
+**Problem - User is seeing "Stream Mode - click Start to play" but NO START BUTTON**
+
+**What should happen:**
+1. User selects a date (Today/Yesterday/Other Date)
+2. Page shows "Click Start to play timelapse" 
+3. A "▶ Start Stream" button should appear
+4. User clicks Start button, video plays as MJPEG stream
+
+**What IS happening:**
+1. User selects a date
+2. Text shows "Stream Mode - click Start to play" or "Click Start to play timelapse"
+3. NO BUTTON IS VISIBLE - just blank space where button should be
+4. The button HTML exists in the source but isn't rendering
+
+**Backend status**: The `/api/timelapse/stream` endpoint IS WORKING - tested with curl and returns correct MJPEG data.
+
+**Files involved:**
+- `/var/www/camviewer/timelapse.html` - Frontend (HTML/CSS/JS)
+- `/var/www/camviewer/auth_server.py` - Backend API (has working stream endpoint)
+
+**HTML elements that should show:**
+```html
+<div class="stream-mode hidden" id="streamMode">
+    <div class="stream-overlay" id="streamOverlay">
+        <div class="stream-btn" id="streamStartBtn" onclick="startStream()">&#9654; Start Stream</div>
+    </div>
+</div>
+```
+
+**CSS:**
+```css
+.stream-mode {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+}
+.stream-mode.hidden { display: none; }
+.stream-btn {
+    background: #0f3460;
+    border: 2px solid #4ade80;
+    color: #4ade80;
+    padding: 1.5rem 3rem;
+    border-radius: 12px;
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+```
+
+**JavaScript flow:**
+1. `loadToday()` or `loadYesterday()` is called on init
+2. These call `selectDate(dateStr)`
+3. `selectDate()` calls `loadTimelapse(dateStr)`
+4. `loadTimelapse()` should:
+   - Remove `.hidden` class from `streamMode` div
+   - Show stream overlay with start button
+   - Update info bar text
+
+**Troubleshooting steps taken:**
+1. Fixed inline `style="display:none"` → now uses class-based hiding
+2. Simplified JavaScript to directly show stream mode
+3. Still not working
+
+**What needs to be fixed:**
+The Start Stream button is not appearing. Need to debug why the stream-mode div isn't being shown when loadTimelapse() runs.
+
 ### Timelapse API Endpoints
 
 ```
 GET /api/timelapse/dates            # List dates with images
 GET /api/timelapse/list?date=YYYY-MM-DD   # List images for a date
 GET /api/timelapse/image?path=...  # Serve a specific image
+GET /api/timelapse/stream?date=YYYY-MM-DD&speed=300  # MJPEG stream (WORKING)
 ```
 
 ---

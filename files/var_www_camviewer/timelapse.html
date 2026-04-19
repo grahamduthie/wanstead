@@ -362,6 +362,76 @@
         .viewer {
             position: relative;
         }
+        
+        /* Stream mode */
+        .stream-mode {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        .stream-mode.hidden {
+            display: none;
+        }
+        .stream-overlay {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .stream-btn {
+            background: #0f3460;
+            border: 2px solid #4ade80;
+            color: #4ade80;
+            padding: 1.5rem 3rem;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .stream-btn:hover {
+            background: #4ade80;
+            color: #1a1a2e;
+        }
+        
+        /* Mode bar */
+        .mode-bar {
+            padding: 0.5rem 1rem;
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            background: #0f3460;
+            margin-bottom: 0.5rem;
+            border-radius: 6px;
+        }
+        .mode-label {
+            font-size: 0.8rem;
+            color: #888;
+            margin-right: 0.5rem;
+        }
+        .mode-btn {
+            background: transparent;
+            border: 1px solid #333;
+            color: #aaa;
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .mode-btn:hover {
+            background: #1a4a80;
+        }
+        .mode-btn.active {
+            background: #4ade80;
+            color: #1a1a2e;
+            border-color: #4ade80;
+        }
     </style>
 </head>
 <body>
@@ -395,18 +465,16 @@
         <div class="viewer">
             <div class="viewer-placeholder" id="placeholder">Select a date to view timelapse</div>
             <img id="timelapseImg" style="display:none" alt="Timelapse">
-            <div class="download-overlay" id="downloadOverlay">
-                <button class="download-btn" id="downloadBtn" onclick="downloadAllImages()">
-                    <span>&#8595;</span>
-                    <span id="downloadBtnText">Download All (0)</span>
-                </button>
-            </div>
-            <div class="progress-overlay hidden" id="progressOverlay">
-                <div class="progress-text" id="progressText">Downloading... 0/0</div>
-                <div class="progress-bar-overlay">
-                    <div class="progress-bar-overlay-fill" id="progressBarOverlayFill"></div>
+            <div class="stream-mode hidden" id="streamMode">
+                <div class="stream-overlay" id="streamOverlay">
+                    <div class="stream-btn" id="streamStartBtn" onclick="startStream()">&#9654; Start Stream</div>
                 </div>
             </div>
+        </div>
+        <div class="mode-bar" id="modeBar" style="display:none">
+            <span class="mode-label">Mode:</span>
+            <button class="mode-btn active" id="modeStream" onclick="setMode('stream')">Stream</button>
+            <button class="mode-btn" id="modeCache" onclick="setMode('cache')">Download</button>
         </div>
         <div class="info-bar" id="infoBar" style="display:none">
             <span id="imageInfo">-</span>
@@ -449,6 +517,11 @@
         var downloadInProgress = false;
         var downloadedCount = 0;
         var totalImages = 0;
+        
+        /* Stream mode */
+        var currentMode = 'stream';
+        var currentStream = null;
+        var isStreaming = false;
         
         var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         var dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
@@ -591,53 +664,55 @@
             downloadedCount = 0;
             currentIndex = 0;
             isPlaying = false;
+            isStreaming = false;
             if (playInterval) {
                 clearInterval(playInterval);
                 playInterval = null;
             }
             
-            showLoading();
-            api('/api/timelapse/list?date=' + dateStr)
-                .then(function(data) {
-                    if (data.ok && data.images) {
-                        images = data.images;
-                        totalImages = images.length;
-                        if (images.length === 0) {
-                            showError('No images found for ' + dateStr);
-                        } else {
-                            /* Show preview with download button */
-                            document.getElementById('placeholder').style.display = 'none';
-                            document.getElementById('timelapseImg').style.display = 'block';
-                            document.getElementById('infoBar').style.display = 'flex';
-                            document.getElementById('downloadOverlay').classList.remove('hidden');
-                            document.getElementById('downloadBtnText').textContent = 'Download All (' + images.length + ')';
-                            document.getElementById('progressOverlay').classList.add('hidden');
-                            
-                            /* Load random preview image */
-                            var previewIndex = Math.floor(Math.random() * images.length);
-                            var img = document.getElementById('timelapseImg');
-                            img.src = apiBase + '/api/timelapse/image?path=' + encodeURIComponent(images[previewIndex]);
-                            
-                            /* Show info bar */
-                            document.getElementById('imageInfo').textContent = 'Preview';
-                            document.getElementById('dateInfo').textContent = images.length + ' frames - click to download';
-                            document.getElementById('progressFill').style.width = '0%';
-                            
-                            /* Disable playback controls until downloaded */
-                            document.getElementById('playbackControls').style.display = 'flex';
-                            document.getElementById('playBtn').disabled = true;
-                            document.getElementById('playBtn').textContent = '\u25B6 Download First';
-                            document.getElementById('prevBtn').disabled = true;
-                            document.getElementById('nextBtn').disabled = true;
-                            document.getElementById('resetBtn').disabled = true;
-                        }
-                    } else {
-                        showError(data.error || 'Failed to load images');
-                    }
-                })
-                .catch(function() {
-                    showError('Network error');
-                });
+            selectedDate = dateStr;
+            
+            /* Show stream mode UI */
+            document.getElementById('placeholder').style.display = 'none';
+            document.getElementById('timelapseImg').style.display = 'none';
+            document.getElementById('streamMode').classList.remove('hidden');
+            document.getElementById('streamOverlay').style.display = 'flex';
+            document.getElementById('infoBar').style.display = 'flex';
+            document.getElementById('playbackControls').style.display = 'flex';
+            document.getElementById('modeBar').style.display = 'flex';
+            
+            document.getElementById('imageInfo').textContent = 'Click Start to play timelapse';
+            document.getElementById('dateInfo').textContent = '';
+        }
+        
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('modeStream').classList.toggle('active', mode === 'stream');
+            document.getElementById('modeCache').classList.toggle('active', mode === 'cache');
+            if (selectedDate) {
+                loadTimelapse(selectedDate);
+            }
+        }
+        
+        function startStream() {
+            if (!selectedDate || isStreaming) return;
+            
+            var speed = document.getElementById('speedSelect').value;
+            var url = apiBase + '/api/timelapse/stream?date=' + selectedDate + '&speed=' + speed;
+            
+            isStreaming = true;
+            document.getElementById('streamOverlay').style.display = 'none';
+            document.getElementById('timelapseImg').style.display = 'block';
+            document.getElementById('timelapseImg').src = url;
+            
+            document.getElementById('imageInfo').textContent = 'Streaming...';
+            document.getElementById('dateInfo').textContent = '';
+        }
+        
+        function stopStream() {
+            isStreaming = false;
+            document.getElementById('timelapseImg').src = '';
+            document.getElementById('streamOverlay').style.display = 'flex';
         }
         
         function showLoading() {
