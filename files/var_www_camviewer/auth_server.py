@@ -1432,6 +1432,168 @@ def api_timelapse_stream():
     return response
 
 
+@app.route("/api/time", methods=["GET"])
+def api_time():
+    """Return the Pi's current Unix timestamp and IANA timezone so the browser
+    can display the correct local time regardless of where the viewer is."""
+    tz = "Europe/London"
+    try:
+        with open("/etc/timezone") as f:
+            tz = f.read().strip()
+    except OSError:
+        pass
+    return jsonify({"ok": True, "epoch": time.time(), "timezone": tz})
+
+
+# ---------------------------------------------------------------------------
+# Timelapse video generation
+# ---------------------------------------------------------------------------
+import subprocess
+import tempfile
+import threading
+
+_video_gen_lock = threading.Lock()
+_video_gen_active = set()  # date strings currently being generated
+
+
+def _video_needs_regen(date_dir, video_path):
+    """Return True if the MP4 doesn't exist or a newer JPEG has been captured since.
+
+    A freshness grace period of 5 minutes is applied: if the video was generated
+    recently, we consider it up-to-date even if one or two new frames have arrived.
+    This prevents a continuous regen loop while timelapse capture is in progress
+    (frames every 5 min, generation takes ~30 s).
+    """
+    _FRESHNESS_SECS = 300  # 5 minutes — matches the capture interval
+    try:
+        if not os.path.isfile(video_path):
+            return True
+        video_mtime = os.path.getmtime(video_path)
+        # If the video is fresh enough, don't trigger another generation yet
+        if (time.time() - video_mtime) < _FRESHNESS_SECS:
+            return False
+        for f in os.listdir(date_dir):
+            if f.endswith(".jpg"):
+                try:
+                    if os.path.getmtime(os.path.join(date_dir, f)) > video_mtime:
+                        return True
+                except OSError:
+                    pass
+        return False
+    except OSError:
+        return True  # Assume regen needed if storage is temporarily unreadable
+
+
+def _run_video_generation(date_str, date_dir, video_path):
+    """Generate a 720p H.264 MP4 from the JPEG frames for one date."""
+    import shutil
+    jpg_files = sorted(f for f in os.listdir(date_dir) if f.endswith(".jpg"))
+    if not jpg_files:
+        return False
+
+    fd_list, filelist = tempfile.mkstemp(suffix=".txt")
+    # Write to local /tmp — writing directly to the NAS over CIFS is unreliable
+    # for large ffmpeg output. We copy to the NAS once encoding succeeds.
+    fd_out, tmp_out = tempfile.mkstemp(suffix=".tmp.mp4")
+    os.close(fd_out)
+    try:
+        with os.fdopen(fd_list, "w") as f:
+            for jpg in jpg_files:
+                f.write(f"file '{os.path.join(date_dir, jpg)}'\n")
+                f.write("duration 0.1\n")
+            # Repeat last file without duration — ffmpeg concat quirk to seal
+            # the final frame's duration and ensure it appears in the output.
+            f.write(f"file '{os.path.join(date_dir, jpg_files[-1])}'\n")
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0", "-i", filelist,
+                "-r", "10",
+                "-vf", "scale=1280:720",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                tmp_out,
+            ],
+            capture_output=True,
+            timeout=300,
+        )
+        if result.returncode == 0:
+            shutil.copy2(tmp_out, video_path)
+            return True
+        return False
+    except Exception:
+        return False
+    finally:
+        for p in (filelist, tmp_out):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def _generate_video_bg(date_str, date_dir, video_path):
+    """Thread target: generate video then remove from active set."""
+    try:
+        _run_video_generation(date_str, date_dir, video_path)
+    finally:
+        with _video_gen_lock:
+            _video_gen_active.discard(date_str)
+
+
+@app.route("/api/timelapse/video/status", methods=["GET"])
+@require_login
+def api_timelapse_video_status():
+    """Check whether the MP4 for a date is ready; kick off generation if not."""
+    date_str = request.args.get("date", "")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        return jsonify({"ok": False, "error": "Invalid date"}), 400
+
+    date_dir = os.path.join(TIMELAPSE_DIR, date_str)
+    try:
+        if not os.path.isdir(date_dir):
+            return jsonify({"ok": False, "error": "No images for this date"}), 404
+    except OSError:
+        return jsonify({"ok": False, "error": "Storage temporarily unavailable"}), 503
+
+    video_path = os.path.join(date_dir, "timelapse.mp4")
+
+    try:
+        with _video_gen_lock:
+            generating = date_str in _video_gen_active
+            if not generating and _video_needs_regen(date_dir, video_path):
+                _video_gen_active.add(date_str)
+                threading.Thread(
+                    target=_generate_video_bg,
+                    args=(date_str, date_dir, video_path),
+                    daemon=True,
+                ).start()
+                generating = True
+    except Exception as exc:
+        auth_logger.error("VIDEO_STATUS_ERROR date=%s — %s", date_str, exc)
+        return jsonify({"ok": False, "error": "Internal error checking video status"}), 500
+
+    return jsonify({"ok": True, "status": "generating" if generating else "ready"})
+
+
+@app.route("/api/timelapse/video/file", methods=["GET"])
+@require_login
+def api_timelapse_video_file():
+    """Serve the pre-generated timelapse MP4 for a date."""
+    from flask import send_file
+
+    date_str = request.args.get("date", "")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        return jsonify({"ok": False, "error": "Invalid date"}), 400
+
+    video_path = os.path.join(TIMELAPSE_DIR, date_str, "timelapse.mp4")
+    if not os.path.isfile(video_path):
+        return jsonify({"ok": False, "error": "Video not ready"}), 404
+
+    return send_file(video_path, mimetype="video/mp4", conditional=True)
+
+
 if __name__ == "__main__":
     auth_logger.info("Starting wcam-auth on 127.0.0.1:8086 (Waitress)")
     serve(app, host="127.0.0.1", port=8086, threads=4, connection_limit=100)
