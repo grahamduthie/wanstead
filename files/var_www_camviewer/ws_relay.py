@@ -130,13 +130,16 @@ async def fetch_mjpeg_stream():
     up and causes periodic GC pauses that manifest as jerky playback.
     """
     MIN_FRAME_INTERVAL = 0.05  # 50ms = max ~20fps to clients
+    CONNECT_TIMEOUT = 10.0     # seconds to establish connection / read headers
+    STREAM_TIMEOUT = 30.0      # seconds of silence before treating stream as dead
     last_broadcast = 0.0
 
     while True:
-        reader = None
+        writer = None
         try:
-            reader, writer = await asyncio.open_connection(
-                USTREAMER_HOST, USTREAMER_PORT
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(USTREAMER_HOST, USTREAMER_PORT),
+                timeout=CONNECT_TIMEOUT,
             )
             request = (
                 f"GET {USTREAMER_PATH} HTTP/1.1\r\n"
@@ -145,12 +148,14 @@ async def fetch_mjpeg_stream():
                 f"\r\n"
             )
             writer.write(request.encode())
-            await writer.drain()
+            await asyncio.wait_for(writer.drain(), timeout=CONNECT_TIMEOUT)
 
             # Read HTTP response headers
             headers = b""
             while True:
-                line = await reader.readline()
+                line = await asyncio.wait_for(
+                    reader.readline(), timeout=CONNECT_TIMEOUT
+                )
                 if line == b"\r\n":
                     break
                 headers += line
@@ -161,7 +166,16 @@ async def fetch_mjpeg_stream():
 
             buffer = b""
             while True:
-                chunk = await reader.read(8192)
+                try:
+                    chunk = await asyncio.wait_for(
+                        reader.read(8192), timeout=STREAM_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "No data from ustreamer for %.0fs, reconnecting...",
+                        STREAM_TIMEOUT,
+                    )
+                    break
                 if not chunk:
                     logger.warning("Stream ended, reconnecting...")
                     break
@@ -195,12 +209,15 @@ async def fetch_mjpeg_stream():
                                         dead.add(ws)
                                 clients.difference_update(dead)
 
+        except asyncio.TimeoutError:
+            logger.warning("ustreamer connection timed out, reconnecting...")
         except Exception as e:
             logger.warning("MJPEG stream disconnected: %s", e)
         finally:
-            if reader:
+            if writer is not None:
                 try:
-                    pass
+                    writer.close()
+                    await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
                 except Exception:
                     pass
         # Reconnect after a short delay
