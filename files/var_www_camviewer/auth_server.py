@@ -1594,6 +1594,219 @@ def api_timelapse_video_file():
     return send_file(video_path, mimetype="video/mp4", conditional=True)
 
 
+# ---------------------------------------------------------------------------
+# Overview timelapse — multi-day composite video
+# ---------------------------------------------------------------------------
+_OVERVIEW_TARGETS = ["09:00:00", "13:00:00", "17:00:00"]
+_OVERVIEW_RANGES = {"7d": 7, "30d": 30, "all": None}
+_OVERVIEW_MAX_DIFF = 7200   # skip target if nearest frame is >2 h away
+_OVERVIEW_FRESHNESS = 3600  # seconds before we check for newer frames
+
+_overview_gen_lock = threading.Lock()
+_overview_gen_active = set()       # range keys currently being generated
+_overview_frame_cache = {}         # range_key -> [{"label": "..."}, ...]
+
+_MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun",
+                "Jul","Aug","Sep","Oct","Nov","Dec"]
+
+
+def _get_overview_dates(range_key):
+    """Return sorted date strings in scope for range_key."""
+    try:
+        all_dates = sorted(
+            d for d in os.listdir(TIMELAPSE_DIR)
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", d)
+            and os.path.isdir(os.path.join(TIMELAPSE_DIR, d))
+        )
+    except OSError:
+        return []
+    if not all_dates:
+        return []
+    n = _OVERVIEW_RANGES.get(range_key)
+    return all_dates[-n:] if n else all_dates
+
+
+def _pick_overview_frames(date_strs):
+    """For each date pick the JPEG closest to each target time (within 2 h).
+    Returns [(abs_path, label), ...] with duplicates removed."""
+    selected = []
+    seen = set()
+    for date_str in sorted(date_strs):
+        date_dir = os.path.join(TIMELAPSE_DIR, date_str)
+        try:
+            jpgs = sorted(f for f in os.listdir(date_dir) if f.endswith(".jpg"))
+        except OSError:
+            continue
+        if not jpgs:
+            continue
+        parts = date_str.split("-")
+        day, month = int(parts[2]), _MONTH_ABBR[int(parts[1]) - 1]
+        for target in _OVERVIEW_TARGETS:
+            th, tm = int(target[:2]), int(target[3:5])
+            target_secs = th * 3600 + tm * 60
+            best_path, best_h, best_m, best_diff = None, 0, 0, float("inf")
+            for jpg in jpgs:
+                mo = re.match(r"\d{4}-\d{2}-\d{2}_(\d{2})(\d{2})\d{2}\.jpg$", jpg)
+                if not mo:
+                    continue
+                h, mi = int(mo.group(1)), int(mo.group(2))
+                diff = abs(h * 3600 + mi * 60 - target_secs)
+                if diff < best_diff:
+                    best_diff, best_path, best_h, best_m = diff, os.path.join(date_dir, jpg), h, mi
+            if best_path and best_diff <= _OVERVIEW_MAX_DIFF and best_path not in seen:
+                seen.add(best_path)
+                label = f"{day} {month} {best_h:02d}:{best_m:02d}"
+                selected.append((best_path, label))
+    return selected
+
+
+def _overview_needs_regen(video_path, date_strs):
+    """True if the overview MP4 is missing or stale."""
+    if not os.path.isfile(video_path):
+        return True
+    try:
+        video_mtime = os.path.getmtime(video_path)
+        if (time.time() - video_mtime) < _OVERVIEW_FRESHNESS:
+            return False
+        if date_strs:
+            newest_dir = os.path.join(TIMELAPSE_DIR, sorted(date_strs)[-1])
+            for f in os.listdir(newest_dir):
+                if f.endswith(".jpg"):
+                    if os.path.getmtime(os.path.join(newest_dir, f)) > video_mtime:
+                        return True
+        return False
+    except OSError:
+        return True
+
+
+def _run_overview_generation(video_path, frames):
+    """Stitch selected frames into a 2 fps overview MP4. Returns True on success."""
+    import shutil
+    if not frames:
+        return False
+    fd_list, filelist = tempfile.mkstemp(suffix=".txt")
+    fd_out, tmp_out = tempfile.mkstemp(suffix=".tmp.mp4")
+    os.close(fd_out)
+    try:
+        with os.fdopen(fd_list, "w") as f:
+            for path, _ in frames:
+                f.write(f"file '{path}'\n")
+                f.write("duration 0.5\n")
+            f.write(f"file '{frames[-1][0]}'\n")
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-f", "concat", "-safe", "0", "-i", filelist,
+                "-r", "2",
+                "-vf", "scale=1280:720",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                tmp_out,
+            ],
+            capture_output=True,
+            timeout=300,
+        )
+        if result.returncode == 0:
+            shutil.copy2(tmp_out, video_path)
+            return True
+        auth_logger.error("OVERVIEW_FFMPEG_FAIL stderr=%s", result.stderr[-500:].decode(errors="replace"))
+        return False
+    except Exception as exc:
+        auth_logger.error("OVERVIEW_GEN_EXCEPTION — %s", exc)
+        return False
+    finally:
+        for p in (filelist, tmp_out):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def _generate_overview_bg(range_key, video_path, frames):
+    """Thread target: generate overview video then update cache."""
+    try:
+        ok = _run_overview_generation(video_path, frames)
+        if ok:
+            with _overview_gen_lock:
+                _overview_frame_cache[range_key] = [{"label": lbl} for _, lbl in frames]
+        else:
+            auth_logger.error("OVERVIEW_GEN_FAILED range=%s", range_key)
+    except Exception as exc:
+        auth_logger.error("OVERVIEW_GEN_ERROR range=%s — %s", range_key, exc)
+    finally:
+        with _overview_gen_lock:
+            _overview_gen_active.discard(range_key)
+
+
+@app.route("/api/timelapse/overview/status", methods=["GET"])
+@require_login
+def api_timelapse_overview_status():
+    """Check/kick-off overview generation; return frame labels when ready."""
+    range_key = request.args.get("range", "7d")
+    if range_key not in _OVERVIEW_RANGES:
+        return jsonify({"ok": False, "error": "Invalid range"}), 400
+
+    date_strs = _get_overview_dates(range_key)
+    if not date_strs:
+        return jsonify({"ok": False, "error": "No timelapse data available"}), 404
+
+    video_path = os.path.join(TIMELAPSE_DIR, f"overview_{range_key}.mp4")
+
+    try:
+        with _overview_gen_lock:
+            generating = range_key in _overview_gen_active
+            needs_regen = not generating and _overview_needs_regen(video_path, date_strs)
+
+        if needs_regen:
+            frames = _pick_overview_frames(date_strs)
+            if not frames:
+                return jsonify({"ok": False, "error": "No frames found in range"}), 404
+            with _overview_gen_lock:
+                if range_key not in _overview_gen_active:
+                    _overview_gen_active.add(range_key)
+                    threading.Thread(
+                        target=_generate_overview_bg,
+                        args=(range_key, video_path, frames),
+                        daemon=True,
+                    ).start()
+                generating = True
+    except Exception as exc:
+        auth_logger.error("OVERVIEW_STATUS_ERROR range=%s — %s", range_key, exc)
+        return jsonify({"ok": False, "error": "Internal error"}), 500
+
+    if generating:
+        return jsonify({"ok": True, "status": "generating"})
+
+    with _overview_gen_lock:
+        frame_labels = _overview_frame_cache.get(range_key)
+
+    if frame_labels is None:
+        frames = _pick_overview_frames(date_strs)
+        frame_labels = [{"label": lbl} for _, lbl in frames]
+        with _overview_gen_lock:
+            _overview_frame_cache[range_key] = frame_labels
+
+    return jsonify({"ok": True, "status": "ready", "frames": frame_labels})
+
+
+@app.route("/api/timelapse/overview/file", methods=["GET"])
+@require_login
+def api_timelapse_overview_file():
+    """Serve the pre-generated overview MP4."""
+    from flask import send_file
+
+    range_key = request.args.get("range", "7d")
+    if range_key not in _OVERVIEW_RANGES:
+        return jsonify({"ok": False, "error": "Invalid range"}), 400
+
+    video_path = os.path.join(TIMELAPSE_DIR, f"overview_{range_key}.mp4")
+    if not os.path.isfile(video_path):
+        return jsonify({"ok": False, "error": "Video not ready"}), 404
+
+    return send_file(video_path, mimetype="video/mp4", conditional=True)
+
+
 if __name__ == "__main__":
     auth_logger.info("Starting wcam-auth on 127.0.0.1:8086 (Waitress)")
     serve(app, host="127.0.0.1", port=8086, threads=4, connection_limit=100)

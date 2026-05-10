@@ -629,6 +629,37 @@
             text-align: center;
             margin-top: 0.2rem;
         }
+        .fullscreen-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #fff;
+            font-size: 1rem;
+            line-height: 1;
+            cursor: pointer;
+            padding: 6px 9px;
+            border-radius: 5px;
+            z-index: 50;
+            opacity: 0.5;
+            transition: opacity 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .fullscreen-btn:hover { opacity: 1; }
+        #streamFeed:fullscreen,
+        #streamFeed:-webkit-full-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        #streamFeed:fullscreen canvas,
+        #streamFeed:-webkit-full-screen canvas {
+            width: 100%;
+            height: auto;
+            max-height: 100vh;
+        }
         .preset-btn .preset-label {
             display: block;
             font-size: 0.65rem;
@@ -733,6 +764,7 @@
                 </div>
             </div>
             <div class="camera-feed" id="streamFeed">
+                <button class="fullscreen-btn" id="fullscreenBtn" onclick="toggleFullscreen()" title="Fullscreen">&#x26F6;</button>
                 <div class="capture-overlay" id="captureOverlay">
                     <div class="capture-icon">&#128247;</div>
                     <div class="capture-text" id="captureText">Capturing...</div>
@@ -970,10 +1002,34 @@
             if (txt) txt.textContent = 'Offline';
         }
 
-        // --- Clock ---
+        // --- Clock (synced to Pi time and timezone) ---
+        var piTimeOffset = 0;           // ms skew between Pi clock and browser clock
+        var piTimezone = 'Europe/London'; // IANA timezone name from the Pi
+
         function updateClock() {
             var el = document.getElementById('clock');
-            if (el) el.textContent = new Date().toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'medium' });
+            if (el) el.textContent = new Date(Date.now() + piTimeOffset)
+                .toLocaleString('en-GB', {
+                    dateStyle: 'full',
+                    timeStyle: 'medium',
+                    timeZone: piTimezone
+                });
+        }
+
+        function initClock() {
+            fetch('/api/time', { credentials: 'include' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.ok) {
+                        piTimeOffset = Math.round(data.epoch * 1000) - Date.now();
+                        if (data.timezone) piTimezone = data.timezone;
+                    }
+                })
+                .catch(function() {}) // fall back to browser time silently
+                .finally(function() {
+                    updateClock();
+                    setInterval(updateClock, 1000);
+                });
         }
 
         // --- Logout ---
@@ -1388,6 +1444,26 @@
             });
         })();
 
+        // --- Fullscreen ---
+        function toggleFullscreen() {
+            var el = document.getElementById('streamFeed');
+            if (document.fullscreenElement || document.webkitFullscreenElement) {
+                (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+            } else {
+                (el.requestFullscreen || el.webkitRequestFullscreen).call(el).catch(function() {});
+            }
+        }
+
+        function onFullscreenChange() {
+            var btn = document.getElementById('fullscreenBtn');
+            var isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+            btn.textContent = isFs ? '✕' : '⛶';
+            btn.title = isFs ? 'Exit fullscreen' : 'Fullscreen';
+        }
+
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
         // --- Log cache: preloaded when admin modal opens ---
         var logCache = null;
         var logCacheTime = 0;
@@ -1645,9 +1721,8 @@
         });
 
         // --- Init ---
-        setInterval(updateClock, 1000);
+        initClock();
         checkAdmin();
-        updateClock();
         loadSavedPreset();
     </script>
 </body>
