@@ -198,11 +198,10 @@
             <button class="btn btn-secondary" id="btnYesterday" onclick="loadYesterday()">Yesterday</button>
             <button class="btn btn-secondary" id="btnToday" onclick="loadToday()">Today</button>
             <button class="btn btn-secondary" id="btnOther" onclick="toggleCalendar()">Other Date &#9660;</button>
-            <button class="btn btn-secondary" id="btnOverview" onclick="toggleOverview()">Overview &#9660;</button>
+            <button class="btn btn-secondary" id="btnOverview" onclick="toggleOverview()">Multi-Day &#9660;</button>
         </div>
 
         <div class="overview-picker" id="overviewPicker">
-            <button class="btn btn-secondary" id="btnOv7d" onclick="loadOverview('7d')">Last 7 days</button>
             <button class="btn btn-secondary" id="btnOv30d" onclick="loadOverview('30d')">Last 30 days</button>
             <button class="btn btn-secondary" id="btnOvAll" onclick="loadOverview('all')">All time</button>
         </div>
@@ -335,7 +334,7 @@
             var picker = document.getElementById('overviewPicker');
             var open = picker.classList.toggle('visible');
             document.getElementById('btnOverview').innerHTML =
-                open ? 'Overview &#9650;' : 'Overview &#9660;';
+                open ? 'Multi-Day &#9650;' : 'Multi-Day &#9660;';
         }
 
         function changeMonth(d) {
@@ -348,7 +347,7 @@
         /* ── Date selection ───────────────────────────────────────── */
         function setActiveBtn(id) {
             ['btnYesterday','btnToday','btnOther','btnOverview',
-             'btnOv7d','btnOv30d','btnOvAll'].forEach(function(b) {
+             'btnOv30d','btnOvAll'].forEach(function(b) {
                 document.getElementById(b).classList.remove('btn-active');
             });
             if (id) document.getElementById(id).classList.add('btn-active');
@@ -356,7 +355,7 @@
 
         function closeOverviewPicker() {
             document.getElementById('overviewPicker').classList.remove('visible');
-            document.getElementById('btnOverview').innerHTML = 'Overview &#9660;';
+            document.getElementById('btnOverview').innerHTML = 'Multi-Day &#9660;';
         }
 
         function pickDate(ds) {
@@ -476,8 +475,7 @@
             vid.style.display = 'none';
             document.getElementById('viewerFooter').style.display = 'none';
 
-            var rangeLabel = range === '7d' ? 'last 7 days'
-                           : range === '30d' ? 'last 30 days' : 'all available dates';
+            var rangeLabel = range === '30d' ? 'last 30 days' : 'all available dates';
             document.getElementById('placeholder').innerHTML =
                 '<div class="spinner"></div>' +
                 '<span>Generating overview…</span>' +
@@ -512,8 +510,7 @@
             document.getElementById('placeholder').style.display = 'none';
             document.getElementById('viewerFooter').style.display = 'block';
 
-            var rangeLabel = range === '7d' ? 'Last 7 days'
-                           : range === '30d' ? 'Last 30 days' : 'All time';
+            var rangeLabel = range === '30d' ? 'Last 30 days' : 'All time';
             document.getElementById('imageInfo').textContent = frames.length + ' frames';
             document.getElementById('dateInfo').textContent = rangeLabel;
         }

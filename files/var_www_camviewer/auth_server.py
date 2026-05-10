@@ -1597,8 +1597,8 @@ def api_timelapse_video_file():
 # ---------------------------------------------------------------------------
 # Overview timelapse — multi-day composite video
 # ---------------------------------------------------------------------------
-_OVERVIEW_TARGETS = ["09:00:00", "13:00:00", "17:00:00"]
-_OVERVIEW_RANGES = {"7d": 7, "30d": 30, "all": None}
+_OVERVIEW_TARGETS = ["12:00:00"]
+_OVERVIEW_RANGES = {"30d": 30, "all": None}
 _OVERVIEW_MAX_DIFF = 7200   # skip target if nearest frame is >2 h away
 _OVERVIEW_FRESHNESS = 3600  # seconds before we check for newer frames
 
@@ -1743,7 +1743,7 @@ def _generate_overview_bg(range_key, video_path, frames):
 @require_login
 def api_timelapse_overview_status():
     """Check/kick-off overview generation; return frame labels when ready."""
-    range_key = request.args.get("range", "7d")
+    range_key = request.args.get("range", "30d")
     if range_key not in _OVERVIEW_RANGES:
         return jsonify({"ok": False, "error": "Invalid range"}), 400
 
@@ -1796,7 +1796,7 @@ def api_timelapse_overview_file():
     """Serve the pre-generated overview MP4."""
     from flask import send_file
 
-    range_key = request.args.get("range", "7d")
+    range_key = request.args.get("range", "30d")
     if range_key not in _OVERVIEW_RANGES:
         return jsonify({"ok": False, "error": "Invalid range"}), 400
 
