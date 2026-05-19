@@ -21,6 +21,13 @@ from waitress import serve
 
 app = Flask(__name__)
 
+
+@app.after_request
+def add_cors_headers(response):
+    if request.path.startswith("/api/"):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    return response
+
 # --- Configuration ---
 USERS_FILE = "/etc/nginx/.wcam-users.json"
 SESSION_COOKIE_NAME = "wcam_session"
@@ -1283,12 +1290,26 @@ def api_capture_status_set():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+TRUSTED_LAN   = "172.16.10."
+JOGGLER_TOKEN = "1196aa2a51b6c86f914a800742434dd0de4f9606"
+
+
+def is_lan_request():
+    """Return True if the request originates from the trusted home LAN."""
+    ip = request.headers.get("X-Real-IP") or request.remote_addr or ""
+    return ip.startswith(TRUSTED_LAN)
+
+
 def require_login(f):
-    """Decorator to require valid session."""
+    """Decorator to require valid session (LAN clients and Joggler token are exempt)."""
     from functools import wraps
 
     @wraps(f)
     def decorated(*args, **kwargs):
+        if is_lan_request():
+            return f(*args, **kwargs)
+        if request.args.get("token") == JOGGLER_TOKEN:
+            return f(*args, **kwargs)
         token = request.cookies.get(SESSION_COOKIE_NAME)
         info = verify_session(token)
         if not info:
@@ -1296,6 +1317,38 @@ def require_login(f):
         return f(*args, **kwargs)
 
     return decorated
+
+
+@app.route("/api/live", methods=["GET"])
+@require_login
+def api_live():
+    """Proxy the ustreamer MJPEG live stream so it's reachable over HTTPS."""
+    import urllib.request as ureq
+
+    try:
+        upstream = ureq.urlopen("http://127.0.0.1:8080/stream", timeout=10)
+    except Exception as e:
+        return f"Stream unavailable: {e}", 503
+
+    content_type = upstream.headers.get(
+        "Content-Type", "multipart/x-mixed-replace; boundary=boundarydonotcross"
+    )
+
+    def generate():
+        try:
+            while True:
+                chunk = upstream.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+        except Exception:
+            pass
+        finally:
+            upstream.close()
+
+    resp = Response(generate(), content_type=content_type)
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/api/timelapse/list", methods=["GET"])
@@ -1400,6 +1453,13 @@ def api_timelapse_stream():
 
     if not image_files:
         return "No images for this date", 404
+
+    try:
+        start = int(request.args.get("start", "0"))
+    except ValueError:
+        start = 0
+    start = max(0, min(start, len(image_files) - 1))
+    image_files = image_files[start:]
 
     BOUNDARY = "boundarydonotcross"
 

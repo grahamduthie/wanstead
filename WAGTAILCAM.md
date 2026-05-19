@@ -460,85 +460,17 @@ To improve performance on slow/unreliable connections:
 
 **Bandwidth usage**: ~50MB per day of timelapse (168 images × ~300KB each)
 
-### MJPEG Streaming (IN PROGRESS)
+### MJPEG Streaming
 
-**Goal**: Add a stream mode that plays timelapse as a video stream instead of downloading individual images.
-
-**Problem - User is seeing "Stream Mode - click Start to play" but NO START BUTTON**
-
-**What should happen:**
-1. User selects a date (Today/Yesterday/Other Date)
-2. Page shows "Click Start to play timelapse" 
-3. A "▶ Start Stream" button should appear
-4. User clicks Start button, video plays as MJPEG stream
-
-**What IS happening:**
-1. User selects a date
-2. Text shows "Stream Mode - click Start to play" or "Click Start to play timelapse"
-3. NO BUTTON IS VISIBLE - just blank space where button should be
-4. The button HTML exists in the source but isn't rendering
-
-**Backend status**: The `/api/timelapse/stream` endpoint IS WORKING - tested with curl and returns correct MJPEG data.
-
-**Files involved:**
-- `/var/www/camviewer/timelapse.html` - Frontend (HTML/CSS/JS)
-- `/var/www/camviewer/auth_server.py` - Backend API (has working stream endpoint)
-
-**HTML elements that should show:**
-```html
-<div class="stream-mode hidden" id="streamMode">
-    <div class="stream-overlay" id="streamOverlay">
-        <div class="stream-btn" id="streamStartBtn" onclick="startStream()">&#9654; Start Stream</div>
-    </div>
-</div>
-```
-
-**CSS:**
-```css
-.stream-mode {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #000;
-}
-.stream-mode.hidden { display: none; }
-.stream-btn {
-    background: #0f3460;
-    border: 2px solid #4ade80;
-    color: #4ade80;
-    padding: 1.5rem 3rem;
-    border-radius: 12px;
-    font-size: 1.2rem;
-    cursor: pointer;
-}
-```
-
-**JavaScript flow:**
-1. `loadToday()` or `loadYesterday()` is called on init
-2. These call `selectDate(dateStr)`
-3. `selectDate()` calls `loadTimelapse(dateStr)`
-4. `loadTimelapse()` should:
-   - Remove `.hidden` class from `streamMode` div
-   - Show stream overlay with start button
-   - Update info bar text
-
-**Troubleshooting steps taken:**
-1. Fixed inline `style="display:none"` → now uses class-based hiding
-2. Simplified JavaScript to directly show stream mode
-3. Still not working
-
-**What needs to be fixed:**
-The Start Stream button is not appearing. Need to debug why the stream-mode div isn't being shown when loadTimelapse() runs.
+The `/api/timelapse/stream` endpoint streams timelapse as MJPEG. It is used by the Joggler kiosk dashboard (see [Joggler Kiosk Integration](#joggler-kiosk-integration) below). The web viewer (`timelapse.html`) uses JS frame cycling with on-demand preloading instead — this allows frame-accurate seeking and progress bars that MJPEG cannot provide.
 
 ### Timelapse API Endpoints
 
 ```
-GET /api/timelapse/dates            # List dates with images
-GET /api/timelapse/list?date=YYYY-MM-DD   # List images for a date
-GET /api/timelapse/image?path=...  # Serve a specific image
-GET /api/timelapse/stream?date=YYYY-MM-DD&speed=300  # MJPEG stream (WORKING)
+GET /api/timelapse/dates                                      # List dates with images
+GET /api/timelapse/list?date=YYYY-MM-DD                       # List images for a date
+GET /api/timelapse/image?path=...                             # Serve a specific image
+GET /api/timelapse/stream?date=YYYY-MM-DD&speed=500&start=0  # MJPEG stream
 ```
 
 ---
@@ -624,6 +556,82 @@ The PTZ Pro 2 is a consumer camera. For window scenes at night:
 - Performance will be limited
 - Consider dedicated security camera with IR LEDs for night vision
 - Current gain is set to maximum (255) for low light
+
+---
+
+## Joggler Kiosk Integration
+
+The O2 Joggler home dashboard (`/Users/gduthie/Programming/Joggler/dashboard.html`) connects to WagtailCam from any network using token authentication. The Joggler runs as a local `file://` kiosk and cannot use browser session cookies.
+
+### Token Authentication
+
+A static 40-character hex token (`JOGGLER_TOKEN`) is defined in `auth_server.py`. The `require_login` decorator checks this token in the query string before requiring a session cookie:
+
+```python
+if request.args.get("token") == JOGGLER_TOKEN:
+    return f(*args, **kwargs)
+```
+
+The same token is embedded in `dashboard.html` as `WCAM_TOKEN`. All Joggler API calls use the `wcamUrl(path)` helper, which appends `?token=TOKEN` or `&token=TOKEN` depending on whether the path already has a query string.
+
+The LAN IP bypass (`172.16.10.*`) remains active — token auth is additive.
+
+### Live Stream Proxy (`/api/live`)
+
+ustreamer binds to `http://127.0.0.1:8080` and is not directly internet-accessible. The `/api/live` Flask endpoint proxies it:
+
+- Protected by `@require_login` (token accepted)
+- Streams MJPEG via a chunked generator — browser holds only the current frame
+- Returns 503 if ustreamer is unavailable
+
+nginx proxies `/api/live` to Flask with `proxy_buffering off` and `proxy_read_timeout 3600s`. The Joggler reconnects every 5 minutes to keep the stream healthy.
+
+### Timelapse Stream
+
+The Joggler requests `/api/timelapse/stream?date=YYYY-MM-DD&speed=500&start=N`:
+
+- `speed=500`: 500ms per frame (suited to the Joggler's Atom CPU)
+- `start=N`: frame index to begin from, enabling resume-after-pause
+
+A separate 520ms JS tick updates the time display independently without parsing the MJPEG stream.
+
+### nginx Security Additions
+
+**Token stripping from access logs** (`nginx.conf`): The `no_query` log format uses `$uri` instead of `$request_uri`, preventing auth tokens from appearing in log files:
+
+```nginx
+log_format no_query '$remote_addr - $remote_user [$time_local] '
+                    '"$request_method $uri $server_protocol" '
+                    '$status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent"';
+```
+
+The WagtailCam site writes to a separate log using this format:
+
+```nginx
+access_log /var/log/nginx/wagtailcam.log no_query;
+```
+
+**Rate limiting on `/api/live`**: Prevents the proxied stream from being used as a bandwidth amplifier. Defined in `nginx.conf`:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=wcam_live:1m rate=2r/m;
+```
+
+Applied in the `camviewer` site config:
+
+```nginx
+location = /api/live {
+    limit_req zone=wcam_live burst=2 nodelay;
+    proxy_pass http://127.0.0.1:8086;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+    ...
+}
+```
+
+Allows 2 new connections per minute per IP with a burst of 2.
 
 ---
 
