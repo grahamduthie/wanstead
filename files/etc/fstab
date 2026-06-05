@@ -1,0 +1,4 @@
+proc            /proc           proc    defaults          0       0
+PARTUUID=42370d6f-01  /boot/firmware  vfat    defaults          0       2
+PARTUUID=42370d6f-02  /               ext4    defaults,noatime  0       1
+//172.16.10.107/media/WagtailCam /mnt/nas cifs guest,vers=1.0,nofail,_netdev,x-systemd.automount,x-systemd.mount-timeout=30 0 0
