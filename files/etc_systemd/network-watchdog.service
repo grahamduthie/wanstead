@@ -1,0 +1,7 @@
+[Unit]
+Description=Network watchdog — recover hung wlan0
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/network-watchdog.sh

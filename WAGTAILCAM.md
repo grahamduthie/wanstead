@@ -76,9 +76,12 @@ This project is a modified derivative of the [WansteadCam project](https://githu
 ### Pi Access
 
 - **Hostname**: wagtailcam.gdx.org.uk
-- **SSH**: `ssh gduthie@wagtailcam.gdx.org.uk`
+- **Internal IP**: 172.16.10.236 (DHCP — may change; check router if unreachable externally)
+- **SSH (external)**: `ssh gduthie@wagtailcam.gdx.org.uk`
+- **SSH (internal)**: `ssh gduthie@172.16.10.236`
 - **User**: gduthie
 - **Key**: Uses SSH keys (no password auth)
+- **Network**: WiFi (wlan0) — eth0 not connected
 
 ---
 
