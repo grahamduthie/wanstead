@@ -1,7 +1,7 @@
 # Wanstead Pi — Webcam Project
 
 **Date:** 7 April 2026
-**Updated:** 3 May 2026 (10:30 BST) — Fixed crash in `reboot-router.py` caused by `SafeLogger` not supporting multiple arguments; added Stage 0 to `wait_for_router` to ensure router goes offline before checking for recovery, preventing premature "back online" detections.
+**Updated:** 7 September 2026 — WiFi power management disabled; journal persistence enabled; WiFi watchdog added.
 **Device:** Raspberry Pi (cellpi, kernel 6.12.75+rpt-rpi-v8, aarch64)
 **IP:** 192.168.0.18
 **Public IP:** 90.251.55.4 (dynamic, BT)
@@ -450,6 +450,36 @@ Every 5 min: touch /var/log/.fs_health_test
 - **Shell scripts** (`namecheap-ddns.sh`, `sweex-capture.sh`) — would fail silently. Sweex writes to tmpfs so is unaffected. DDNS log writes would be lost.
 - **SD card replacement** — the underlying hardware issue is not addressed. The card is a generic no-name brand from 2020. If read-only events recur, replace with an industrial/high-endurance SD card (e.g. Samsung PRO Endurance, Kingston Industrial).
 
+#### WiFi Resilience (7 September 2026)
+
+In August 2026, the Pi lost WiFi connectivity and didn't recover for three weeks (router reboot failed with `[Errno 101] Network is unreachable` on 17, 24, and 31 Aug). Root cause: the Pi's WiFi driver got into a stuck state (likely triggered by power-saving mode causing a missed-beacon deassociation), and NetworkManager couldn't recover without a full restart. A power cycle fixed it immediately.
+
+Three mitigations were added:
+
+**1. WiFi power management disabled** — Raspberry Pi's WiFi driver power-saving mode is a known cause of intermittent disconnection. Disabled via NetworkManager config:
+
+- File: `/etc/NetworkManager/conf.d/wifi-power-save-off.conf`
+- Setting: `wifi.powersave = 2` (disabled; default `0` inherits driver default which is "on" on Pi)
+- Verified: `iwconfig wlan0` now shows `Power Management:off`
+
+**2. Journal persistence enabled** — Raspberry Pi OS ships with `Storage=volatile` in `/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf`, meaning all logs are lost on reboot. This made it impossible to diagnose the WiFi outage after the fact. Overridden via:
+
+- File: `/etc/systemd/journald.conf.d/size-limit.conf` — added `Storage=persistent`
+- Journal directory: `/var/log/journal/` (machine-ID subdirectory created manually)
+- Retention: existing `SystemMaxUse=50M`, `MaxRetentionSec=1month` limits apply
+
+**3. WiFi watchdog** — `/usr/local/bin/wifi-watchdog.sh` runs every 5 minutes via cron. Recovery sequence:
+
+1. Ping `1.1.1.1` via wlan0 — if OK, exit silently (clean markers)
+2. If internet unreachable, check wlan0 IP and gateway (`192.168.0.1`):
+   - wlan0 has IP **and** gateway reachable → DSL/WAN issue, not WiFi → log and exit (no action)
+   - wlan0 has no IP **or** gateway unreachable → WiFi is dead → proceed
+3. **Stage 1:** restart NetworkManager, set marker, exit
+4. **Stage 2 (next run, ~5 min later):** if still down and marker set → reboot
+5. Reboot marker in `/var/run/` (cleared on reboot) prevents repeat reboots within 1 hour
+
+The DSL guard prevents the watchdog from restarting NM during the 3–4 minute window when the router is rebooting (when the gateway is temporarily unreachable but WiFi itself is fine).
+
 ### Security Notes (9 April 2026 — Hardened)
 
 - **HTTPS enabled** — Let's Encrypt TLS on port 443, HTTP redirects to HTTPS, HSTS header set
@@ -505,8 +535,10 @@ Every 5 min: touch /var/log/.fs_health_test
 | `/etc/logrotate.d/wcam-auth` | Logrotate config for auth log (safety net) |
 | `/etc/logrotate.d/router-reboot` | Logrotate config for router reboot log |
 | `/etc/logrotate.d/namecheap-ddns` | Logrotate config for DDNS log |
-| `/etc/systemd/journald.conf.d/size-limit.conf` | systemd journal size limits (50M persistent, 20M runtime, 1 month max) |
+| `/etc/systemd/journald.conf.d/size-limit.conf` | systemd journal config — persistent storage (`Storage=persistent` overrides RPi default), 50M max, 1 month retention |
+| `/etc/NetworkManager/conf.d/wifi-power-save-off.conf` | Disables WiFi power management (`wifi.powersave = 2`) — prevents driver from entering sleep and missing beacons |
 | `/usr/local/bin/fs-health-check.sh` | Filesystem health check — detects read-only FS, auto-remounts rw, restarts services |
+| `/usr/local/bin/wifi-watchdog.sh` | WiFi watchdog — detects lost WiFi, restarts NetworkManager, reboots if NM restart fails to recover |
 | `/var/www/camviewer/auth_server.py` | Waitress WSGI server — includes `SafeFileHandler` (crash-proof logging), `/api/health` endpoint, `save_users()` error handling |
 | `/var/www/camviewer/ws_relay.py` | WebSocket MJPEG relay — includes `SafeRotatingHandler` (crash-proof logging) |
 
@@ -624,4 +656,9 @@ sudo logrotate -f /etc/logrotate.d/wcam-auth
 sudo /usr/local/bin/fs-health-check.sh          # Manual run
 sudo journalctl -t fs-health-check --since "1 hour ago"  # View health check logs
 curl -s http://127.0.0.1:8086/api/health         # Check filesystem status via API
+
+# WiFi watchdog
+sudo /usr/local/bin/wifi-watchdog.sh            # Manual run (exits 0 if internet reachable)
+sudo journalctl -t wifi-watchdog --since "1 hour ago"  # View watchdog logs
+iwconfig wlan0 | grep "Power Management"        # Verify power management is off
 ```
