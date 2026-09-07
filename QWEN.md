@@ -1,7 +1,7 @@
 # Wanstead Pi — Webcam Project
 
 **Date:** 7 April 2026
-**Updated:** 13 April 2026 (13:45 BST) — Unified WebSocket relay for all browsers; Event Log shows all rotated files (50/page, timestamp-sorted); router reboot audit entries in webGUI, three-stage reboot verification with uptime confirmation; per_page default 50
+**Updated:** 3 May 2026 (10:30 BST) — Fixed crash in `reboot-router.py` caused by `SafeLogger` not supporting multiple arguments; added Stage 0 to `wait_for_router` to ensure router goes offline before checking for recovery, preventing premature "back online" detections.
 **Device:** Raspberry Pi (cellpi, kernel 6.12.75+rpt-rpi-v8, aarch64)
 **IP:** 192.168.0.18
 **Public IP:** 90.251.55.4 (dynamic, BT)
