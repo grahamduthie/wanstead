@@ -1,14 +1,16 @@
 # Wanstead Pi — Webcam Project
 
-**Date:** 7 April 2026
-**Updated:** 7 September 2026 — WiFi power management disabled; journal persistence enabled; WiFi watchdog added.
+> **For Claude:** This is the engineering reference for the WansteadCam project. It describes the current production system running on `cellpi` (Raspberry Pi at 192.168.0.18). Read this at the start of each session for full context — architecture, services, key files, known issues, and useful commands are all here.
+
+**Started:** 7 April 2026
+**Updated:** 7 September 2026 — Renamed QWEN.md → CLAUDE.md; WiFi power management disabled; journal persistence enabled; WiFi watchdog added.
 **Device:** Raspberry Pi (cellpi, kernel 6.12.75+rpt-rpi-v8, aarch64)
-**IP:** 192.168.0.18
+**Network:** WiFi via `wlan0` — connected to SSID `LPGM` (5GHz), IP 192.168.0.18
 **Public IP:** 90.251.55.4 (dynamic, BT)
 **Domain:** https://wansteadcam.lumoco.com (Namecheap Dynamic DNS, Let's Encrypt TLS)
 **Router:** Netgear D7000 (192.168.0.1) — port forwards 80, 443 → 192.168.0.18
 
-**Note:** This document is maintained on the Pi itself (`/home/gduthie/wanstead/QWEN.md`).
+**Note:** This document is maintained on the Pi itself (`/home/gduthie/wanstead/CLAUDE.md`).
 
 ---
 
@@ -34,12 +36,12 @@ Set up remote webcam viewing via a web application on the Pi, accessible from an
 Pi root hub (dwc_otg)
 └── SMSC USB 2.0 Hub (0424:2514) — built-in Pi hub
     └── SMSC USB 2.0 Hub (0424:2514) — second tier
-        ├── SMSC LAN7800 (0424:7800) — Pi's onboard Ethernet (lan78xx)
+        ├── SMSC LAN7800 (0424:7800) — Pi's onboard Ethernet (lan78xx) — no cable connected
         ├── Logitech QuickCam Pro 5000 (046d:08c5) → /dev/video0
         └── Sweex Mini Webcam (0c45:6005) → /dev/video2
 ```
 
-**Note:** The LTE dongle (`05c6:90b4`) is no longer connected.
+**Note:** The Pi connects to the network via **WiFi** (`wlan0`, built-in BCM chip, not shown in USB topology). The onboard Ethernet (`eth0`) has no cable connected. The LTE dongle (`05c6:90b4`) is no longer connected.
 
 ---
 
@@ -132,6 +134,8 @@ Internal → 192.168.0.1 (HTTP)          → reboot-router.py → weekly router 
 
 wansteadcam.lumoco.com ──DDNS──→ 90.251.55.4 ──port 443──→ 192.168.0.18:443 (TLS)
                                                           ──port 80───→ 192.168.0.18:80  (→ 301 → 443)
+
+Pi network: wlan0 → WiFi (SSID: LPGM, 5GHz, 192.168.0.18) → Netgear D7000 (192.168.0.1) → BT DSL
 ```
 
 ### Auth Flow
@@ -151,6 +155,8 @@ wansteadcam.lumoco.com ──DDNS──→ 90.251.55.4 ──port 443──→ 1
 | **ustreamer-logitech** | 8080 | ✅ Running | 640x480, 30fps, MJPEG — LAN only. `--slowdown` flag: drops to 1 FPS when no clients connected (30x CPU reduction) |
 | **ustreamer-sweex** | — | ✅ Running | Periodic still capturer, no port needed |
 | **fail2ban** | — | ✅ Running | SSH jail (3 fails → 1h ban), wcam-auth jail (5 fails → 1h ban) |
+| **wifi-watchdog** | — | ✅ Cron (*/5) | Detects WiFi loss, restarts NetworkManager, reboots if unrecovered |
+| **fs-health-check** | — | ✅ Cron (*/5) | Detects read-only FS, auto-remounts, reboots as last resort |
 | **camviewer** | — | 🚫 Masked | Conflicting Flask server — removed and masked to prevent port 8085 conflict |
 
 ### SSL / TLS
@@ -161,7 +167,7 @@ wansteadcam.lumoco.com ──DDNS──→ 90.251.55.4 ──port 443──→ 1
 | Certificate | `/etc/letsencrypt/live/wansteadcam.lumoco.com/fullchain.pem` |
 | Private key | `/etc/letsencrypt/live/wansteadcam.lumoco.com/privkey.pem` |
 | Key type | ECDSA |
-| Valid until | 7 July 2026 |
+| Valid until | 4 November 2026 (last renewed 6 August 2026) |
 | Renewal method | certbot `webroot` via systemd timer (twice daily) |
 | Deploy hook | `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh` — reloads nginx after renewal |
 | HSTS | `max-age=31536000; includeSubDomains` — browsers enforce HTTPS for returning visitors |

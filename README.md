@@ -57,14 +57,15 @@ Internal → Port 8087 → wcam-ws-relay → WebSocket MJPEG relay
 files/
 ├── etc_certbot/          # Certbot renewal hooks
 ├── etc_fail2ban/         # fail2ban jail configs and filters
-├── etc_journald/         # systemd journal size limits
+├── etc_journald/         # systemd journal config (persistent storage, size limits)
 ├── etc_logrotate/        # Log rotation configs
+├── etc_networkmanager/   # NetworkManager config (WiFi power management)
 ├── etc_nginx/            # nginx site configs
 ├── etc_ssh/              # SSH hardening drop-in
 ├── etc_systemd/          # systemd service units
-├── usr_local_bin/        # Custom scripts (DDNS, router reboot, health check)
+├── usr_local_bin/        # Custom scripts (DDNS, router reboot, health check, WiFi watchdog)
 └── var_www_camviewer/    # Web application (auth backend, relay, HTML)
-QWEN.md                   # Detailed engineering log (maintained on the Pi)
+CLAUDE.md                 # Full engineering reference (auto-loaded by Claude)
 ```
 
 ## Quick Start (on a fresh Pi)
@@ -103,6 +104,7 @@ sudo crontab -e
 */5 * * * * NAMECHEAP_DDNS_PASSWORD="your-namecheap-ddns-password" /usr/local/bin/namecheap-ddns.sh
 0 4 * * 1 ROUTER_IP="192.168.0.1" ROUTER_USER="admin" ROUTER_PASS="your-router-password" /usr/local/bin/reboot-router.py
 */5 * * * * /usr/local/bin/fs-health-check.sh
+*/5 * * * * /usr/local/bin/wifi-watchdog.sh
 ```
 
 ### 3. Create the user database
@@ -140,7 +142,7 @@ This system is designed to run unattended on an SD card — the most common poin
 2. **Health check script** — Runs every 5 minutes via cron, detects read-only filesystem, attempts `mount -o remount,rw`, and reboots as a last resort
 3. **SD card monitoring** — Checks dmesg for MMC errors, filesystem state, and fsck interval; logs results to the web-accessible Event Log every hour
 
-See `QWEN.md` for the full incident report and technical details.
+See `CLAUDE.md` for the full incident report and technical details.
 
 ## Security
 
