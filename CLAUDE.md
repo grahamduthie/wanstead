@@ -242,7 +242,7 @@ The script checks the current public IP via `api.ipify.org`, compares it to the 
 
 ### Router Auto-Reboot
 
-The Netgear D7000 has a firmware bug that causes the DSL connection to drop after ~600 hours of uptime. A weekly reboot prevents this.
+The Netgear D7000 has a firmware bug that causes the DSL connection to drop after ~600 hours of uptime. A reboot prevents this — but every reboot forces a DSL resync, and (learned 8 September 2026, during a DLM-related fault) resyncs are exactly the kind of event Openreach's DLM stability tracking watches, so rebooting more often than necessary can work against the line settling at its best sync profile. As of 8 September 2026 the script is **uptime-gated**: cron still fires weekly, but the script only actually reboots once the router's own System Up Time reaches `MIN_UPTIME_HOURS` (default 400h — a ~1.5x safety margin under the ~600h bug), so a real reboot now happens roughly every 2-3 weeks instead of every week. Most weekly cron firings are a no-op status check.
 
 | Item | Value |
 |------|-------|
@@ -250,11 +250,13 @@ The Netgear D7000 has a firmware bug that causes the DSL connection to drop afte
 | Admin credentials | admin / password |
 | Reboot method | HTTP POST to `setup.cgi?id=<dynamic_id>` with `todo=reboot` |
 | Script | `/usr/local/bin/reboot-router.py` |
-| Schedule | Cron, every Monday at 04:00 BST |
+| Schedule | Cron, every Monday at 04:00 BST — reboot itself is uptime-gated (see above), so not every firing reboots |
+| Min uptime before reboot | `MIN_UPTIME_HOURS` env var, default 400h; `--force` bypasses it |
 | Log | `/var/log/router-reboot.log` |
 
-**How it works (three-stage verification, 13 April 2026):**
+**How it works (three-stage verification, 13 April 2026; uptime gate added 8 September 2026):**
 
+0. Authenticate, then read **System Up Time** from `RST_stattbl.htm` (`get_system_uptime_hours()` — regex on `System Up Time</b> HH:MM:SS`, hours field is cumulative so can exceed 24). If below `MIN_UPTIME_HOURS` and `--force` wasn't passed, log `ROUTER_REBOOT_SKIPPED` to both logs and exit 0 without touching the reboot form.
 1. Authenticate to router web interface via HTTP Basic Auth
 2. Fetch `reboot.htm` to get a dynamic form action ID (changes each session)
 3. POST to `setup.cgi?id=<id>` with `todo=reboot`
@@ -262,6 +264,8 @@ The Netgear D7000 has a firmware bug that causes the DSL connection to drop afte
 5. **Stage 2** — Wait for actual internet connectivity (HTTP 200 from `https://1.1.1.1`), up to 10 min. The web UI comes up in seconds but DSL sync takes minutes — this is the real test.
 6. **Stage 3** — Confirm reboot by reading router uptime from `RST_status.htm` (`var wan_status = "HH:MM:SS"`). If uptime > 5 min, the reboot didn't actually happen (stale web UI). Fails with `ROUTER_REBOOT_FAIL`.
 7. Log success or failure to both `/var/log/router-reboot.log` and the webGUI Event Log.
+
+**Important distinction between the two uptime readings used by this script:** `wan_status` from `RST_status.htm` (Stage 3, used to *confirm a reboot just happened*) is the WAN/PPPoE session uptime — it resets on ANY DSL resync, including one the ISP triggers remotely (e.g. a DLM reset) with no router reboot at all. `System Up Time` from `RST_stattbl.htm` (Stage 0, used to *decide whether to reboot*) is the router's own continuous power-on time, which is what the ~600h firmware bug actually tracks. Using `wan_status` for the pre-reboot gate would be wrong — an ISP-side line reset would falsely reset the gate's clock and could suppress a genuinely needed reboot indefinitely. This distinction was discovered 8 September 2026 while diagnosing a DLM-reset incident where the two values differed by ~30 hours at the same moment (System Up Time 33.7h vs WAN Up Time ~3.7h).
 
 **Timeout:** Increased from 180s to 600s (10 min) to allow full DSL sync time.
 
@@ -272,8 +276,9 @@ The Netgear D7000 has a firmware bug that causes the DSL connection to drop afte
 | `ROUTER_REBOOT_SENT` | system | Reboot command sent to router at 192.168.0.1 |
 | `ROUTER_REBOOT_OK` | system | Router at 192.168.0.1 rebooted successfully in X min Y sec (uptime: Xh Ym Zs) |
 | `ROUTER_REBOOT_FAIL` | system | <error message> |
+| `ROUTER_REBOOT_SKIPPED` | system | Skipped: System Up Time X.Xh is below the Yh threshold (added 8 September 2026) |
 
-Entries appear in the Event Log viewer (Admin → Event Log tab) and are filterable by the new "Router Reboot Sent/OK/Fail" dropdown options.
+Entries appear in the Event Log viewer (Admin → Event Log tab) and are filterable by the "Router Reboot Sent/OK/Fail" dropdown options. **Known gap:** that dropdown was not updated for the new `ROUTER_REBOOT_SKIPPED` event type when the uptime gate was added — it still logs correctly and appears in the unfiltered log, but isn't yet selectable as its own filter option in the admin UI.
 
 **Confirmed working:** Tested live on 9 April 2026. Router rebooted at 09:44, DSL up at 09:45, internet restored at 09:45. Measured uptime on 13 April confirmed boot time of 04:02:46 (2 min 44 sec from cron start).
 
@@ -281,10 +286,53 @@ Entries appear in the Event Log viewer (Admin → Event Log tab) and are filtera
 
 **Manual commands:**
 ```bash
-sudo /usr/local/bin/reboot-router.py          # Live reboot
-sudo /usr/local/bin/reboot-router.py --dry-run  # Test without rebooting
+sudo /usr/local/bin/reboot-router.py                    # Reboots only if System Up Time >= MIN_UPTIME_HOURS (default 400h)
+sudo /usr/local/bin/reboot-router.py --force             # Reboot regardless of uptime
+sudo /usr/local/bin/reboot-router.py --dry-run            # Test without rebooting (respects the uptime gate; combine with --force to test the reboot mechanism itself)
+sudo MIN_UPTIME_HOURS=200 /usr/local/bin/reboot-router.py # Override the threshold for one run
 cat /var/log/router-reboot.log                 # View reboot history
 ```
+
+### VDSL Line Diagnostics
+
+**Auth note:** the router uses HTTP Basic auth (realm `NETGEAR D7000`), not Digest — an older memory note claiming Digest auth and a `DGN2200v3` model was wrong (verified live 2026-09-07; the `DGN2200v3` string in error pages is leftover firmware template branding). Basic auth requires priming a session cookie with an initial `GET /` first.
+
+**How to check live line stats** (`RST_stattbl.htm` — the only page in this firmware exposing VDSL stats; ~14 other common Netgear page names were tried and all 404):
+
+```python
+import re, requests
+from requests.auth import HTTPBasicAuth
+
+session = requests.Session()
+session.auth = HTTPBasicAuth("admin", "password")
+session.get("http://192.168.0.1/", timeout=10)  # primes session cookie — required
+r = session.get("http://192.168.0.1/RST_stattbl.htm", timeout=10)
+
+cells = re.findall(r'<td[^>]*>(.*?)</td>', r.text, re.DOTALL)
+cells = [re.sub(r'<[^>]+>', '', c).strip() for c in cells if c.strip()]
+for c in cells:
+    print(c)
+```
+
+Relevant stats are near the bottom under "VDSL Link": **Link Rate** (Down/Up), **Line Attenuation** (D0/D1/D2, U0-U4, dB — a bulk property of the pair, doesn't move for connection-quality faults), **Noise Margin** (D0/D1/D2, U0-U4, dB — SNR headroom, what actually craters when there's a connection-quality issue), **VDSL2 Profile** (normally 17a).
+
+The same page also has **"System Up Time"** near the top (`<b>System Up Time</b> HH:MM:SS`, cumulative hours) — this is the value the reboot-gating logic in `reboot-router.py` uses (see Router Auto-Reboot above). Don't confuse it with the WAN port's own Up Time row further down the stats table, which is the PPPoE session uptime and resets on any DSL resync (router reboot OR an ISP-side line/DLM reset) — the two diverging is itself a diagnostic signal (see below).
+
+**2026-09-07/08 fault incident (resolved, root cause confirmed as DLM, not physical):**
+
+| | Downstream | Upstream |
+|---|---|---|
+| Link Rate (during fault, 09-07) | 1,999 Kbps | 799 Kbps |
+| Link Rate (after fix, 09-08) | 79,999 Kbps | 20,000 Kbps |
+| Noise Margin (during fault) | D0 31.3, D1 **0.0**, D2 **0.0** dB | ~30 dB all bands |
+| Noise Margin (after fix) | D0/D1/D2 all ~6.6 dB | ~11.2-11.3 dB all bands |
+| Line Attenuation | D0 9.6-9.7, D1 21.9-22.1, D2 33.6-33.8 dB (unchanged before/after — expected, it's a bulk property) | U0 2.5, U1 16.1, U2 24.8-24.9 dB (unchanged) |
+
+Timeline: fault reported and an engineer dispatched 2026-09-07; user's manual router reboot that day at 10:34 BST had **no effect** (fault persisted). User called the ISP again on 2026-09-08; ISP said they'd reset the line. Fixed line stats observed from ~16:33 BST that day (WAN/PPPoE session restarted then), while router System Up Time showed no reboot since the 09-07 10:34 one — confirming the fix was a **line-side reset, not a router reboot**. The user subsequently confirmed **no physical repair was carried out** — the fix was a DLM (Dynamic Line Management) reset only.
+
+**Correct interpretation (superseding earlier speculation):** the dead D1/D2 noise margins were most likely an artifact of a conservative profile DLM had defensively parked the line into (DLM watches error rates/resyncs and steps a line down to a more cautious, heavily-margined profile after enough instability signals) — not evidence of physical line damage. DLM's automatic step-back-up path is slow and history-based, and can stay stuck in a cautious profile indefinitely; repeated resyncs (e.g. from a weekly unconditional router reboot) may even keep resetting DLM's "clean period" tracking and work against auto-recovery. This is the direct motivation for gating `reboot-router.py` on actual need (see Router Auto-Reboot above) rather than rebooting unconditionally every week.
+
+**How to tell "router rebooted" from "line resynced without a reboot"** in future incidents: compare System Up Time against the WAN port's Up Time on `RST_stattbl.htm`. If WAN Up Time is much smaller than System Up Time, the DSL/PPPoE session restarted independently of the router — almost certainly an ISP-side or DLM event, not a local power-cycle.
 
 ### Unattended Operation (9 April 2026 — Hardened)
 

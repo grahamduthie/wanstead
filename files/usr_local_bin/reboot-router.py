@@ -4,13 +4,23 @@
 Method: Fetch reboot.htm to get a dynamic form ID, then POST to setup.cgi.
 Confirmed working on firmware V1.0.1.84_1.0.1 (April 2026).
 
+The router has a firmware bug that drops DSL after ~600 hours of continuous
+uptime, so this is run weekly via cron as a mitigation. To avoid rebooting
+(and forcing a DSL resync) more often than needed — every resync is a data
+point Openreach's DLM stability tracking sees — the script checks the
+router's own System Up Time first and skips the reboot unless it's within
+MIN_UPTIME_HOURS of the bug threshold. Cron still fires weekly; most weeks
+this is a no-op check.
+
 Credentials are read from environment variables:
     ROUTER_IP        — router IP (default: 192.168.0.1)
     ROUTER_USER      — router admin username (default: admin)
     ROUTER_PASS      — router admin password (required)
+    MIN_UPTIME_HOURS — only reboot once System Up Time reaches this many
+                        hours (default: 400; bug threshold is ~600h)
 
 Usage:
-    sudo /usr/local/bin/reboot-router.py [--dry-run]
+    sudo /usr/local/bin/reboot-router.py [--dry-run] [--force]
 """
 import argparse
 import logging
@@ -32,6 +42,7 @@ LOG_FILE = "/var/log/router-reboot.log"
 AUDIT_LOG_PATH = "/var/log/wcam-login.log"
 REBOOT_TIMEOUT = 600   # seconds to wait for full DSL sync + internet
 POLL_INTERVAL = 10     # seconds between connectivity checks
+MIN_UPTIME_HOURS = float(os.environ.get("MIN_UPTIME_HOURS", "400"))
 
 # --- Safe logging: try file, fall back to stderr ---
 class SafeLogger:
@@ -135,6 +146,30 @@ def get_router_uptime(session):
     return None
 
 
+def get_system_uptime_hours(session):
+    """Fetch the router's own System Up Time from RST_stattbl.htm.
+
+    Unlike get_router_uptime() (which reads the WAN/PPPoE session uptime —
+    that resets on any DSL resync, including ones the ISP triggers remotely,
+    e.g. a DLM reset, without the router itself rebooting), this reads the
+    router's continuous power-on uptime, which is what the ~600h firmware
+    bug actually tracks. Page shows e.g.: <b>System Up Time</b> 33:38:05
+    (hours field is cumulative, not wall-clock, so it can exceed 24).
+    Returns total hours as a float, or None if not parseable.
+    """
+    try:
+        r = session.get(f"http://{ROUTER_IP}/RST_stattbl.htm", timeout=10)
+        if r.status_code != 200:
+            return None
+        match = re.search(r'System Up Time</b>\s*([0-9]+):([0-9]+):([0-9]+)', r.text)
+        if not match:
+            return None
+        h, m, s = (int(x) for x in match.groups())
+        return h + m / 60 + s / 3600
+    except Exception:
+        return None
+
+
 def wait_for_router(timeout=REBOOT_TIMEOUT, interval=POLL_INTERVAL):
     """Wait for the router to fully reboot: web UI + internet + uptime confirmation."""
     start = time.time()
@@ -220,6 +255,8 @@ def main():
     parser = argparse.ArgumentParser(description="Reboot the Netgear D7000 router")
     parser.add_argument("--dry-run", action="store_true",
                         help="Fetch reboot page and form ID but do not POST")
+    parser.add_argument("--force", action="store_true",
+                        help="Reboot regardless of current System Up Time")
     args = parser.parse_args()
 
     logger.info("=" * 60)
@@ -231,6 +268,20 @@ def main():
     try:
         session = get_session()
         logger.info("Authenticated with router")
+
+        sys_uptime = get_system_uptime_hours(session)
+        if sys_uptime is not None:
+            logger.info("Router System Up Time: %.1fh (reboot threshold: %.0fh)",
+                        sys_uptime, MIN_UPTIME_HOURS)
+        else:
+            logger.info("Could not read System Up Time (status page may have changed)")
+
+        if not args.force and sys_uptime is not None and sys_uptime < MIN_UPTIME_HOURS:
+            detail = "Skipped: System Up Time %.1fh is below the %.0fh threshold" % (
+                sys_uptime, MIN_UPTIME_HOURS)
+            logger.info(detail)
+            audit_log("ROUTER_REBOOT_SKIPPED", detail)
+            return 0
 
         form_id = get_reboot_form_id(session)
         logger.info(f"Got reboot form ID: {form_id}")
